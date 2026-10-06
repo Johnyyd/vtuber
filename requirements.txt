@@ -1,0 +1,4 @@
+mediapipe>=0.10.35
+opencv-python>=4.7.0.72
+numpy
+git+https://github.com/nyatla/pyvrm.git

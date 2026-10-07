@@ -1,0 +1,22 @@
+1、安装正版程序setup_Pencil+_4.0.0_for_3dsMax_170607
+2、替换Pencil+4_201X.dlt文件到D:\Autodesk\3ds Max 201X\Plugins文件夹
+3、启动3dsmax使用。
+
+1, install the genuine program setup_Pencil+_4.0.0_for_3dsMax_170607
+2. Replace the Pencil+4_201X.dlt file with the D:\Autodesk\3ds Max 201X\Plugins folder
+3, start 3dsmax use.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -12,8 +12,6 @@
   let eyeRightBone = null;
   const clock = new THREE.Clock();
 
-  // Dictionary mapping target keys to mesh morph target indices
-  const morphIndexMap = {};
   const morphMeshes = [];
 
   // Motion target and current interpolated values
@@ -226,19 +224,6 @@
       if (obj.isMesh && obj.morphTargetDictionary) {
         mouthMesh = obj;
         morphMeshes.push(obj);
-        // Build mapping from target keys to morph target indices
-        for (const [targetName, idx] of Object.entries(obj.morphTargetDictionary)) {
-          for (const key of Object.keys(targetMotion.vrc)) {
-            if (targetName.includes(key)) {
-              morphIndexMap[key] = idx;
-            }
-          }
-          for (const key of Object.keys(targetMotion.vrm)) {
-            if (targetName.toLowerCase() === key.toLowerCase() || targetName.endsWith(key)) {
-              morphIndexMap[key] = idx;
-            }
-          }
-        }
       }
 
       if (!headBone && (obj.name === "J_Bip_C_Head" || obj.name === "mixamorig:Head" || obj.name.endsWith("Head"))) {
@@ -255,38 +240,14 @@
       }
     });
 
-    // Extract exact morph target indices from VRM blendShapeProxy groups (VRM 0.0) or expressionManager (VRM 1.0)
-    if (currentVrm) {
-      if (currentVrm.blendShapeProxy && currentVrm.blendShapeProxy._blendShapeGroups) {
-        for (const [groupName, group] of Object.entries(currentVrm.blendShapeProxy._blendShapeGroups)) {
-          if (group && group._binds && group._binds.length > 0) {
-            const idx = group._binds[0].morphTargetIndex;
-            morphIndexMap[groupName.toLowerCase()] = idx;
-            if (group.presetName) {
-              morphIndexMap[group.presetName.toLowerCase()] = idx;
-            }
-          }
-        }
-      } else if (currentVrm.expressionManager && currentVrm.expressionManager.expressions) {
-        for (const [groupName, group] of Object.entries(currentVrm.expressionManager.expressions)) {
-          if (group && group._binds && group._binds.length > 0) {
-            const idx = group._binds[0].index;
-            morphIndexMap[groupName.toLowerCase()] = idx;
-          }
-        }
+    // Disable VRM 1.0 override behaviors so Joy doesn't block A, E, I, O, U
+    if (currentVrm && currentVrm.expressionManager && currentVrm.expressionManager.expressions) {
+      for (const [groupName, group] of Object.entries(currentVrm.expressionManager.expressions)) {
+        group.overrideMouth = 'none';
+        group.overrideBlink = 'none';
+        group.overrideLookAt = 'none';
       }
     }
-
-    // Explicit fallback for VRM 0.x / Arisa morph target indices:
-    if (morphIndexMap["a"] === undefined) morphIndexMap["a"] = 29;
-    if (morphIndexMap["i"] === undefined) morphIndexMap["i"] = 30;
-    if (morphIndexMap["u"] === undefined) morphIndexMap["u"] = 31;
-    if (morphIndexMap["e"] === undefined) morphIndexMap["e"] = 32;
-    if (morphIndexMap["o"] === undefined) morphIndexMap["o"] = 33;
-    if (morphIndexMap["blink"] === undefined) morphIndexMap["blink"] = 12;
-    if (morphIndexMap["blink_r"] === undefined) morphIndexMap["blink_r"] = 13;
-    if (morphIndexMap["blink_l"] === undefined) morphIndexMap["blink_l"] = 14;
-    if (morphIndexMap["joy"] === undefined) morphIndexMap["joy"] = 2;
 
     if (currentVrm && currentVrm.lookAt) {
       currentVrm.lookAt.autoUpdate = false;
@@ -402,22 +363,28 @@
     }
 
     // Blink State Machine (Runs every frame)
+    const physicalBlink = targetMotion.vrm.blink >= 0.15 || targetMotion.vrm.blink_l >= 0.25 || targetMotion.vrm.blink_r >= 0.25;
+
     if (blinkState === "IDLE") {
-      if (targetMotion.vrm.blink >= 0.18 || targetMotion.vrm.blink_l >= 0.35 || targetMotion.vrm.blink_r >= 0.35) {
+      if (physicalBlink) {
         blinkState = "HOLD";
         blinkTimer = now + 150; // Hold for at least 150ms
-        if (targetMotion.vrm.blink >= 0.18) activeBlinkType = "blink";
-        else if (targetMotion.vrm.blink_l >= 0.35) activeBlinkType = "blink_l";
+        if (targetMotion.vrm.blink >= 0.15) activeBlinkType = "blink";
+        else if (targetMotion.vrm.blink_l >= 0.25) activeBlinkType = "blink_l";
         else activeBlinkType = "blink_r";
       }
     } else if (blinkState === "HOLD") {
-      const physicalBlink = targetMotion.vrm.blink >= 0.18 || targetMotion.vrm.blink_l >= 0.35 || targetMotion.vrm.blink_r >= 0.35;
-      if (now >= blinkTimer && !physicalBlink) {
+      if (physicalBlink) {
+         // Extend the hold if they are still physically blinking
+         blinkTimer = Math.max(blinkTimer, now + 100);
+      }
+      if (now >= blinkTimer) {
         blinkState = "COOLDOWN";
         blinkTimer = now + 200; // Cooldown for 200ms
       }
     } else if (blinkState === "COOLDOWN") {
-      if (now >= blinkTimer) {
+      if (now >= blinkTimer && !physicalBlink) {
+        // Must wait for cooldown to expire AND physically stop blinking to release
         blinkState = "IDLE";
         activeBlinkType = null;
       }
@@ -491,7 +458,21 @@
         if (currentVrm.blendShapeProxy) {
           try { currentVrm.blendShapeProxy.setValue(key, currentMotion.vrm[key]); } catch (_) {}
         } else if (currentVrm.expressionManager) {
-          try { currentVrm.expressionManager.setValue(key, currentMotion.vrm[key]); } catch (_) {}
+          try {
+            let vrm1Key = key;
+            if (key === "a") vrm1Key = "aa";
+            if (key === "i") vrm1Key = "ih";
+            if (key === "u") vrm1Key = "ou";
+            if (key === "e") vrm1Key = "ee";
+            if (key === "o") vrm1Key = "oh";
+            if (key === "blink_l") vrm1Key = "blinkLeft";
+            if (key === "blink_r") vrm1Key = "blinkRight";
+            if (key === "joy") vrm1Key = "happy";
+            if (key === "angry") vrm1Key = "angry";
+            if (key === "sorrow") vrm1Key = "sad";
+            if (key === "fun") vrm1Key = "relaxed";
+            currentVrm.expressionManager.setValue(vrm1Key, currentMotion.vrm[key]);
+          } catch (_) {}
         }
       }
 
@@ -502,22 +483,52 @@
     }
 
     // Immediately flush blendShapeProxy values to mesh morph targets
+    // Immediately flush blendShapeProxy values to mesh morph targets
     if (currentVrm) {
       if (currentVrm.blendShapeProxy) currentVrm.blendShapeProxy.update();
       if (currentVrm.expressionManager) currentVrm.expressionManager.update();
-    }
-
-    // Direct synchronization to mesh morphTargetInfluences to guarantee instant GPU rendering
-    if (morphMeshes.length > 0) {
+    } else if (morphMeshes.length > 0) {
+      // Fallback for raw GLTF/GLB models that lack the VRM extension.
+      // Uses safe suffix matching.
       for (const mesh of morphMeshes) {
-        if (mesh.morphTargetInfluences) {
-          for (const [k, v] of Object.entries(currentMotion.vrm)) {
-            const idx = morphIndexMap[k];
-            if (idx !== undefined && idx < mesh.morphTargetInfluences.length) {
-              mesh.morphTargetInfluences[idx] = v;
-            }
-          }
-        }
+        if (!mesh.morphTargetInfluences || !mesh.morphTargetDictionary) continue;
+        const dict = mesh.morphTargetDictionary;
+        const infl = mesh.morphTargetInfluences;
+        const keys = Object.keys(dict);
+        
+        const setMorph = (baseNames, value) => {
+           let applied = false;
+           for (const base of baseNames) {
+              const b = base.toLowerCase();
+              for (const k of keys) {
+                 const kl = k.toLowerCase();
+                 // Exclude cheeks and brows to prevent weird facial distortions on raw gltfs
+                 if (kl.includes("cheek") || kl.includes("brow") || kl.includes("brw")) continue;
+                 if (kl === b || kl.endsWith(`_${b}`) || kl.endsWith(`.${b}`)) {
+                    infl[dict[k]] = value;
+                    applied = true;
+                 }
+              }
+              if (applied) break;
+           }
+        };
+
+        const bl = Math.max(currentMotion.vrm.blink, currentMotion.vrm.blink_l);
+        const br = Math.max(currentMotion.vrm.blink, currentMotion.vrm.blink_r);
+        
+        setMorph(["blink_l", "blinkleft", "close_l"], bl);
+        setMorph(["blink_r", "blinkright", "close_r"], br);
+        
+        setMorph(["a", "aa", "vowel_a"], currentMotion.vrm.a);
+        setMorph(["i", "ih", "vowel_i"], currentMotion.vrm.i);
+        setMorph(["u", "ou", "vowel_u"], currentMotion.vrm.u);
+        setMorph(["e", "ee", "vowel_e"], currentMotion.vrm.e);
+        setMorph(["o", "oh", "vowel_o"], currentMotion.vrm.o);
+        
+        setMorph(["joy", "happy", "smile"], currentMotion.vrm.joy);
+        setMorph(["fun", "relaxed"], currentMotion.vrm.fun);
+        setMorph(["angry"], currentMotion.vrm.angry);
+        setMorph(["sorrow", "sad"], currentMotion.vrm.sorrow);
       }
     }
 

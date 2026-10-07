@@ -425,26 +425,25 @@ def map_mediapipe_to_vrm(
     pucker = g("mouthPucker")
     funnel = g("mouthFunnel")
 
-    # Phonetically distinct Japanese / Anime vowel classification:
-    # "U": Protruded tight lips. Natural speech pucker is 0.06 - 0.16
-    is_u = pucker > 0.05 and funnel < 0.25 and raw_a < 0.50
-    vrm["u"] = _clamp((pucker - 0.03) * 4.5) if is_u else 0.0
+    # Use continuous formulas with deadzones rather than strict boolean triggers
+    # This guarantees E, I, O will confidently activate on any visible lip stretch/smile.
+    def _dz(val: float, deadzone: float = 0.02) -> float:
+        return max(0.0, val - deadzone)
 
-    # "O": Rounded open funnel, or pucker with open jaw
-    is_o = funnel > 0.05 or (pucker > 0.05 and raw_a > 0.15)
-    vrm["o"] = _clamp(max(funnel * 4.0, (pucker * 3.0 if raw_a > 0.10 else 0.0))) if is_o else 0.0
+    # Vowels purely based on lip shapes (removed raw_a dependency from E and I to prevent A suppression)
+    u_val = _dz(pucker, 0.03) * 4.5
+    o_val = _dz(funnel, 0.03) * 4.0 + _dz(raw_a, 0.10) * _dz(pucker, 0.03) * 2.0
+    e_val = _dz(stretch, 0.03) * 4.0
+    i_val = max(_dz(stretch, 0.03) * 3.5, _dz(smile, 0.04) * 3.0)
 
-    # "E": Horizontal mouth stretch with moderate/open jaw
-    is_e = stretch > 0.05 and raw_a > 0.05
-    vrm["e"] = _clamp((stretch - 0.03) * 4.0 + raw_a * 0.6) if is_e else 0.0
+    vrm["u"] = _clamp(u_val)
+    vrm["o"] = _clamp(o_val)
+    vrm["e"] = _clamp(e_val)
+    vrm["i"] = _clamp(i_val)
 
-    # "I": Wide grin/teeth visible with low jaw opening
-    is_i = (stretch > 0.05 or smile > 0.10) and raw_a <= 0.45 and not is_u and not is_o
-    vrm["i"] = _clamp(max((stretch - 0.03) * 4.0, (smile - 0.05) * 2.5)) if is_i else 0.0
-
-    # "A": Primary vertical jaw opening, minus other vowel shapes
-    a_suppression = max(vrm["o"] * 0.60, vrm["u"] * 0.85, vrm["i"] * 0.75, vrm["e"] * 0.50)
-    vrm["a"] = _clamp(raw_a - a_suppression)
+    # A is jaw opening, gently suppressed by tight lip shapes (u, i, e)
+    a_suppression = max(vrm["u"] * 0.8, vrm["i"] * 0.7, vrm["e"] * 0.7)
+    vrm["a"] = _clamp(_dz(raw_a, 0.02) * 1.5 - a_suppression)
 
     vrm["neutral"] = _clamp(1.0 - (vrm["a"] + vrm["i"] + vrm["u"] + vrm["e"] + vrm["o"]))
 
@@ -506,7 +505,9 @@ def map_mediapipe_to_vrm(
         vrm["blink_r"] = 0.0
 
     # 3. Facial Expressions
-    vrm["joy"] = _clamp((smile - 0.10) * 1.8 if smile > 0.10 else 0.0)
+    # Fade joy ONLY if jaw is very wide open (A > 0.5), to allow smiling while talking normally.
+    base_joy = (smile - 0.10) * 1.8 if smile > 0.10 else 0.0
+    vrm["joy"] = _clamp(base_joy - vrm["a"] * 0.8)
     vrm["angry"] = _clamp((g("browDownLeft") + g("browDownRight")) * 0.8)
     vrm["sorrow"] = _clamp(g("browInnerUp") * 0.85)
     vrm["fun"] = _clamp((g("eyeWideLeft") + g("eyeWideRight")) * 0.5 + vrm["a"] * 0.3)

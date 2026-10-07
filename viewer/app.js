@@ -109,7 +109,7 @@
     window.addEventListener("resize", onWindowResize);
 
     // 5. Load VRM Model (Yong)
-    loadModel("../assets/Yong.vrm");
+    loadModel("../assets/Arisa.vrm");
 
     // 6. Start Render Loop
     requestAnimationFrame(animate);
@@ -136,8 +136,8 @@
             (window.THREE_VRM && window.THREE_VRM.VRM && window.THREE_VRM.VRM.from)
               ? window.THREE_VRM.VRM.from.bind(window.THREE_VRM.VRM)
               : (window.THREE && window.THREE.VRM && window.THREE.VRM.fromModel)
-              ? window.THREE.VRM.fromModel.bind(window.THREE.VRM)
-              : null;
+                ? window.THREE.VRM.fromModel.bind(window.THREE.VRM)
+                : null;
 
           if (vrmCreator) {
             vrmCreator(gltf)
@@ -192,11 +192,11 @@
     if (currentVrm && currentVrm.humanoid) {
       try {
         headBone = currentVrm.humanoid.getBoneNode("head") ||
-                   (window.THREE_VRM && window.THREE_VRM.VRMSchema &&
-                    currentVrm.humanoid.getBoneNode(window.THREE_VRM.VRMSchema.HumanoidBoneName.Head));
+          (window.THREE_VRM && window.THREE_VRM.VRMSchema &&
+            currentVrm.humanoid.getBoneNode(window.THREE_VRM.VRMSchema.HumanoidBoneName.Head));
         neckBone = currentVrm.humanoid.getBoneNode("neck") ||
-                   (window.THREE_VRM && window.THREE_VRM.VRMSchema &&
-                    currentVrm.humanoid.getBoneNode(window.THREE_VRM.VRMSchema.HumanoidBoneName.Neck));
+          (window.THREE_VRM && window.THREE_VRM.VRMSchema &&
+            currentVrm.humanoid.getBoneNode(window.THREE_VRM.VRMSchema.HumanoidBoneName.Neck));
       } catch (e) {
         console.warn("[VTuber] Humanoid bone lookup notice:", e);
       }

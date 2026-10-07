@@ -1,24 +1,9 @@
 import cv2
 import mediapipe as mp
 
-from landmark_mapping import map_landmarks_to_blendshapes
+from face_detector import create_face_landmarker, parse_landmarks, parse_blendshapes
+from landmark_mapping import map_landmarks_to_blendshapes, map_mediapipe_to_vrm
 from vrm_renderer import render_vrm
-
-
-mp_face_mesh = mp.solutions.face_mesh
-FACE_DETECTOR = mp_face_mesh.FaceMesh(
-    static_image_mode=False,
-    max_num_faces=1,
-    refine_landmarks=True,
-)
-
-def parse_landmarks(results):
-    out = []
-    if results.multi_face_landmarks:
-        for fm in results.multi_face_landmarks:
-            face = {f"lm{i}": (lm.x, lm.y, lm.z) for i, lm in enumerate(fm.landmark)}
-            out.append(face)
-    return out
 
 
 def main():
@@ -27,21 +12,35 @@ def main():
         print("[Error] Cannot access webcam.")
         return
 
+    landmarker = create_face_landmarker()
+    timestamp = 0
+
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
             break
 
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = FACE_DETECTOR.process(rgb)
-        lm_list = parse_landmarks(results)
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
 
-        if lm_list:
+        # Process frame and get landmarks + blendshapes
+        result = landmarker.detect_for_video(mp_image, timestamp)
+        timestamp += 1
+
+        lm_list = parse_landmarks(result)
+        mp_blendshapes = parse_blendshapes(result)
+
+        # Convert MediaPipe (ARKit) blendshapes to VRM blendshape groups
+        if mp_blendshapes:
+            vrm_blendshapes = map_mediapipe_to_vrm(mp_blendshapes)
+            render_vrm(vrm_blendshapes)
+        elif lm_list:
+            # Fallback to custom mapping if blendshapes not available
             bs = map_landmarks_to_blendshapes(lm_list[0])
             render_vrm(bs)
 
         cv2.imshow("Face Mesh (raw)", frame)
-        if cv2.waitKey(1) & 0xFF == 27:
+        if cv2.waitKey(1) & 0xFF == 27:  # ESC
             break
 
     cap.release()

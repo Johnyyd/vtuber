@@ -136,6 +136,7 @@ class TrackingWorker(QThread):
         self.filter_roll = OneEuroFilter(min_cutoff=0.8, beta=0.015)
         self.filter_gaze_x = OneEuroFilter(min_cutoff=1.0, beta=0.02)
         self.filter_gaze_y = OneEuroFilter(min_cutoff=1.0, beta=0.02)
+        self.last_stable_gaze = {"x": 0.0, "y": 0.0}
 
     def run(self):
         self.status_changed.emit("Initializing webcam & FaceLandmarker...")
@@ -191,6 +192,15 @@ class TrackingWorker(QThread):
                     )
                     raw_gaze = compute_iris_gaze(landmarks, mp_blendshapes=mp_blendshapes)
 
+                    # Check if eyes are blinking or closing
+                    is_blinking = (
+                        vrm_shapes.get("blink", 0.0) > 0.12 or
+                        vrm_shapes.get("blink_l", 0.0) > 0.15 or
+                        vrm_shapes.get("blink_r", 0.0) > 0.15 or
+                        mp_blendshapes.get("eyeBlinkLeft", 0.0) > 0.15 or
+                        mp_blendshapes.get("eyeBlinkRight", 0.0) > 0.15
+                    )
+
                     # Filter rotation & iris gaze to eliminate jitter while keeping instant response
                     t_now = time.time()
                     filtered_rotation = {
@@ -198,10 +208,15 @@ class TrackingWorker(QThread):
                         "yaw": self.filter_yaw.filter(raw_rotation["yaw"], t_now),
                         "roll": self.filter_roll.filter(raw_rotation["roll"], t_now),
                     }
-                    filtered_gaze = {
-                        "x": self.filter_gaze_x.filter(raw_gaze["x"], t_now),
-                        "y": self.filter_gaze_y.filter(raw_gaze["y"], t_now),
-                    }
+                    if is_blinking:
+                        # Freeze gaze at pre-blink position so pupils never twitch or jump during blink
+                        filtered_gaze = dict(self.last_stable_gaze)
+                    else:
+                        filtered_gaze = {
+                            "x": self.filter_gaze_x.filter(raw_gaze["x"], t_now),
+                            "y": self.filter_gaze_y.filter(raw_gaze["y"], t_now),
+                        }
+                        self.last_stable_gaze = dict(filtered_gaze)
 
                     packet = format_motion_packet(
                         vrc=vrc,
@@ -217,6 +232,7 @@ class TrackingWorker(QThread):
                     self.filter_roll.reset()
                     self.filter_gaze_x.reset()
                     self.filter_gaze_y.reset()
+                    self.last_stable_gaze = {"x": 0.0, "y": 0.0}
                     packet = format_motion_packet(None, None, None, None)
                     self.motion_ready.emit(packet)
 

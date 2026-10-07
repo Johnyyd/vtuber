@@ -314,7 +314,7 @@ def compute_iris_gaze(
     if mp_blendshapes:
         bl_l = mp_blendshapes.get("eyeBlinkLeft", 0.0)
         bl_r = mp_blendshapes.get("eyeBlinkRight", 0.0)
-        if bl_l >= 0.30 or bl_r >= 0.30:
+        if bl_l >= 0.15 or bl_r >= 0.15:
             return {"x": 0.0, "y": 0.0}
 
     landmarks = landmarks or {}
@@ -338,8 +338,8 @@ def compute_iris_gaze(
                 p_top = landmarks["lm159"]
                 p_bot = landmarks["lm145"]
                 dy = p_bot[1] - p_top[1]
-                # Eyelids must be open enough to calculate valid vertical gaze
-                if dy >= 0.012:
+                # Eyelids must be open wide enough (>= 0.020) to calculate valid vertical gaze
+                if dy >= 0.020:
                     ratio_y = (p_iris[1] - p_top[1]) / dy
                     gaze_y_list.append((ratio_y - 0.5) * 3.5)
 
@@ -356,7 +356,7 @@ def compute_iris_gaze(
                 p_top = landmarks["lm386"]
                 p_bot = landmarks["lm374"]
                 dy = p_bot[1] - p_top[1]
-                if dy >= 0.012:
+                if dy >= 0.020:
                     ratio_y = (p_iris[1] - p_top[1]) / dy
                     gaze_y_list.append((ratio_y - 0.5) * 3.5)
 

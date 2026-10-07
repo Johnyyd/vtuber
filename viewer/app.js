@@ -323,7 +323,7 @@
       targetMotion.rotation.roll = data.rotation.roll || 0.0;
     }
 
-    if (data.gaze) {
+    if (data.gaze && now >= blinkHoldUntil) {
       targetMotion.gaze.x = data.gaze.x || 0.0;
       targetMotion.gaze.y = data.gaze.y || 0.0;
     }
@@ -395,42 +395,44 @@
       headBone.rotation.set(p * 0.7, y * 0.7, r * 0.7);
     }
 
-    // LERP interpolate iris gaze & rotate eyeball humanoid bones
-    const lerpGaze = 0.40;
-    currentMotion.gaze.x +=
-      (targetMotion.gaze.x - currentMotion.gaze.x) * lerpGaze;
-    currentMotion.gaze.y +=
-      (targetMotion.gaze.y - currentMotion.gaze.y) * lerpGaze;
-
-    // Rotate eyeball bones: max ~0.30 radians (~17 degrees)
-    // Eye pitch offset lowers the resting pupil position so it is comfortably centered
-    const maxEyeAngle = 0.30;
-    const eyePitchOffset = -0.07; // Downward pitch offset (~4 deg) to lower the pupil to natural height
-
     // Check if blink hold window has completed
     if (now >= blinkHoldUntil && activeBlinkType) {
       targetMotion.vrm[activeBlinkType] = 0.0;
       activeBlinkType = null;
     }
 
-    // Guard: When eyelids are closing/blinking, lock gaze to neutral so pupils don't jump or twitch
-    const isBlinkClosing = (
-      currentMotion.vrm.blink > 0.15 ||
-      currentMotion.vrm.blink_l > 0.15 ||
-      currentMotion.vrm.blink_r > 0.15 ||
-      targetMotion.vrm.blink > 0.20 ||
-      now < blinkHoldUntil
+    // Check if eyes are blinking or closing
+    const isBothBlink = (
+      currentMotion.vrm.blink > 0.10 ||
+      targetMotion.vrm.blink > 0.15 ||
+      (now < blinkHoldUntil && activeBlinkType === "blink")
     );
-    const gazeY = isBlinkClosing ? 0.0 : currentMotion.gaze.y;
-    const gazeX = isBlinkClosing ? 0.0 : currentMotion.gaze.x;
+    const isLeftClosing = isBothBlink || currentMotion.vrm.blink_l > 0.15 || (now < blinkHoldUntil && activeBlinkType === "blink_l");
+    const isRightClosing = isBothBlink || currentMotion.vrm.blink_r > 0.15 || (now < blinkHoldUntil && activeBlinkType === "blink_r");
 
-    const eyeRotX = -gazeY * maxEyeAngle + eyePitchOffset;
-    const eyeRotY = gazeX * maxEyeAngle;
+    // LERP interpolate iris gaze smoothly when eyes are open; freeze during blink
+    if (!isBothBlink) {
+      const lerpGaze = 0.35;
+      currentMotion.gaze.x +=
+        (targetMotion.gaze.x - currentMotion.gaze.x) * lerpGaze;
+      currentMotion.gaze.y +=
+        (targetMotion.gaze.y - currentMotion.gaze.y) * lerpGaze;
+    }
 
-    if (eyeLeftBone) {
+    // Rotate eyeball bones: max ~0.30 radians (~17 degrees)
+    // Eye pitch offset lowers the resting pupil position so it is comfortably centered
+    const maxEyeAngle = 0.30;
+    const eyePitchOffset = -0.07; // Downward pitch offset (~4 deg) to lower the pupil to natural height
+
+    const eyeRotX = -currentMotion.gaze.y * maxEyeAngle + eyePitchOffset;
+    const eyeRotY = currentMotion.gaze.x * maxEyeAngle;
+
+    // Freeze eyeball bone rotation while eyelids are closing, closed, or opening!
+    // This completely eliminates any jumping, snapping, or twitching of pupils during blinks.
+    if (eyeLeftBone && !isLeftClosing) {
       eyeLeftBone.rotation.set(eyeRotX, eyeRotY, 0.0);
     }
-    if (eyeRightBone) {
+    if (eyeRightBone && !isRightClosing) {
       eyeRightBone.rotation.set(eyeRotX, eyeRotY, 0.0);
     }
 

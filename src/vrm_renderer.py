@@ -22,8 +22,8 @@ from PyQt6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import QWebEngineSettings
 
-from src.face_detector import create_face_landmarker, parse_landmarks, parse_blendshapes
-from src.landmark_mapping import map_mediapipe_to_vrc, compute_head_pose, VRC_TARGETS
+from face_detector import create_face_landmarker, parse_landmarks, parse_blendshapes
+from landmark_mapping import map_mediapipe_to_vrc, compute_head_pose, VRC_TARGETS
 
 
 def format_motion_packet(

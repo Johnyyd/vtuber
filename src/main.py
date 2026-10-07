@@ -7,7 +7,7 @@ import argparse
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QCoreApplication
 
-from src.vrm_renderer import VTuberWindow
+from vrm_renderer import VTuberWindow
 
 
 def parse_args(argv=None):

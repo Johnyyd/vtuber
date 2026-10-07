@@ -40,7 +40,7 @@
 Create `tests/test_landmark_mapping.py`:
 ```python
 import pytest
-from src.landmark_mapping import map_mediapipe_to_vrc, compute_head_pose
+from landmark_mapping import map_mediapipe_to_vrc, compute_head_pose
 
 def test_vrc_mapping_blink_and_mouth():
     mp_input = {
@@ -217,7 +217,7 @@ git commit -m "feat: create 3D studio viewport with VRM loader and LERP smoothin
 Create `tests/test_vrm_renderer.py`:
 ```python
 import json
-from src.landmark_mapping import map_mediapipe_to_vrc, compute_head_pose
+from landmark_mapping import map_mediapipe_to_vrc, compute_head_pose
 
 def test_motion_packet_json_serializable():
     dummy_vrc = map_mediapipe_to_vrc({"jawOpen": 0.5})

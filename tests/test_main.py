@@ -1,5 +1,5 @@
 import unittest
-from src.main import parse_args
+from main import parse_args
 
 
 class TestMainCLI(unittest.TestCase):

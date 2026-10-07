@@ -1,7 +1,7 @@
 import json
 import unittest
-from src.landmark_mapping import map_mediapipe_to_vrc, compute_head_pose
-from src.vrm_renderer import format_motion_packet
+from landmark_mapping import map_mediapipe_to_vrc, compute_head_pose
+from rm_renderer import format_motion_packet
 
 
 class TestVRMRenderer(unittest.TestCase):

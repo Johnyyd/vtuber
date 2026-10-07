@@ -1,6 +1,9 @@
 import unittest
 import numpy as np
-from landmark_mapping import map_mediapipe_to_vrc, compute_head_pose, VRC_TARGETS
+try:
+    from landmark_mapping import map_mediapipe_to_vrc, compute_head_pose, VRC_TARGETS
+except ImportError:
+    from src.landmark_mapping import map_mediapipe_to_vrc, compute_head_pose, VRC_TARGETS
 
 
 class TestLandmarkMapping(unittest.TestCase):

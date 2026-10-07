@@ -58,8 +58,8 @@
     // 2. Camera setup - focused on avatar upper body / face
     const aspect = window.innerWidth / window.innerHeight;
     camera = new THREE.PerspectiveCamera(28.0, aspect, 0.1, 20.0);
-    camera.position.set(0.0, 1.42, 0.95);
-    camera.lookAt(0.0, 1.34, 0.0);
+    camera.position.set(0.0, 1.48, 0.85);
+    camera.lookAt(0.0, 1.44, 0.0);
 
     // 3. Renderer setup
     renderer = new THREE.WebGLRenderer({
@@ -97,36 +97,57 @@
     requestAnimationFrame(animate);
   }
 
+  function hideLoading() {
+    const overlay = document.getElementById("loading-overlay");
+    if (overlay) {
+      overlay.style.opacity = "0";
+      setTimeout(() => {
+        overlay.style.display = "none";
+      }, 350);
+    }
+  }
+
   function loadModel(vrmUrl) {
     const loader = new THREE.GLTFLoader();
 
     loader.load(
       vrmUrl,
       (gltf) => {
-        THREE.VRM.fromModel(gltf)
-          .then((vrm) => {
-            currentVrm = vrm;
-            scene.add(vrm.scene);
+        try {
+          const vrmCreator =
+            (window.THREE_VRM && window.THREE_VRM.VRM && window.THREE_VRM.VRM.from)
+              ? window.THREE_VRM.VRM.from.bind(window.THREE_VRM.VRM)
+              : (window.THREE && window.THREE.VRM && window.THREE.VRM.fromModel)
+              ? window.THREE.VRM.fromModel.bind(window.THREE.VRM)
+              : null;
 
-            // Locate mouth mesh and bone nodes
-            setupModelReferences(vrm.scene);
-
-            // Hide loading overlay
-            const overlay = document.getElementById("loading-overlay");
-            if (overlay) {
-              overlay.style.opacity = "0";
-              setTimeout(() => (overlay.style.display = "none"), 400);
-            }
-            console.log("[VTuber] Model loaded successfully!");
-          })
-          .catch((err) => {
-            console.error("[VTuber] VRM load error:", err);
-            // Fallback: render raw gltf scene if VRM parser fails
+          if (vrmCreator) {
+            vrmCreator(gltf)
+              .then((vrm) => {
+                currentVrm = vrm;
+                scene.add(vrm.scene);
+                setupModelReferences(vrm.scene);
+                hideLoading();
+                console.log("[VTuber] VRM model loaded successfully!");
+              })
+              .catch((err) => {
+                console.warn("[VTuber] VRM.from parser error, fallback to gltf.scene:", err);
+                scene.add(gltf.scene);
+                setupModelReferences(gltf.scene);
+                hideLoading();
+              });
+          } else {
+            console.warn("[VTuber] VRM parser not found, using gltf.scene directly");
             scene.add(gltf.scene);
             setupModelReferences(gltf.scene);
-            const overlay = document.getElementById("loading-overlay");
-            if (overlay) overlay.style.display = "none";
-          });
+            hideLoading();
+          }
+        } catch (e) {
+          console.error("[VTuber] Error parsing model, using gltf.scene fallback:", e);
+          scene.add(gltf.scene);
+          setupModelReferences(gltf.scene);
+          hideLoading();
+        }
       },
       (progress) => {
         if (progress.total > 0) {
@@ -136,7 +157,7 @@
         }
       },
       (err) => {
-        console.error("[VTuber] GLTF loader error:", err);
+        console.error("[VTuber] GLTF loader network error:", err);
         const txt = document.getElementById("loading-text");
         if (txt) txt.innerText = "Error loading model. Check assets/character.vrm";
       }

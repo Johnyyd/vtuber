@@ -13,6 +13,12 @@ import json
 import time
 from typing import Dict, Any, Optional
 
+_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+_REPO_ROOT = os.path.dirname(_CURRENT_DIR)
+for _p in (_REPO_ROOT, _CURRENT_DIR):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
 import cv2
 import numpy as np
 import mediapipe as mp

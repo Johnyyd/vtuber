@@ -2,8 +2,16 @@
 Main Entry Point: Desktop VTuber 3D Avatar Application
 """
 
+import os
 import sys
 import argparse
+
+_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+_REPO_ROOT = os.path.dirname(_CURRENT_DIR)
+for _p in (_REPO_ROOT, _CURRENT_DIR):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QCoreApplication
 

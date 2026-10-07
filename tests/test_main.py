@@ -1,5 +1,8 @@
 import unittest
-from main import parse_args
+try:
+    from main import parse_args
+except ImportError:
+    from src.main import parse_args
 
 
 class TestMainCLI(unittest.TestCase):

@@ -165,6 +165,9 @@
   }
 
   function setupModelReferences(root) {
+    // Face the camera directly (rotate 180 degrees around Y axis)
+    root.rotation.y = Math.PI;
+
     // Traverse to find Mesh_InteriorMouth2 and bone nodes
     root.traverse((obj) => {
       if (obj.isMesh && obj.morphTargetDictionary) {
@@ -254,9 +257,10 @@
       (targetMotion.rotation.roll - currentMotion.rotation.roll) * lerpRot;
 
     // Apply head and neck bone rotations (Euler: X=pitch, Y=yaw, Z=roll)
-    const p = currentMotion.rotation.pitch;
+    // Pitch is inverted so looking up tilts head backward, bowing down tilts head forward
+    const p = -currentMotion.rotation.pitch;
     const y = currentMotion.rotation.yaw;
-    const r = currentMotion.rotation.roll;
+    const r = -currentMotion.rotation.roll;
 
     if (neckBone) {
       neckBone.rotation.set(p * 0.3, y * 0.3, r * 0.3);

@@ -257,10 +257,27 @@
       for (const [groupName, group] of Object.entries(currentVrm.blendShapeProxy._blendShapeGroups)) {
         if (group && group._binds && group._binds.length > 0) {
           const idx = group._binds[0].morphTargetIndex;
-          const kLower = groupName.toLowerCase();
-          morphIndexMap[kLower] = idx;
+          morphIndexMap[groupName.toLowerCase()] = idx;
+          if (group.presetName) {
+            morphIndexMap[group.presetName.toLowerCase()] = idx;
+          }
         }
       }
+    }
+
+    // Explicit fallback for VRM 0.x / Arisa morph target indices:
+    if (morphIndexMap["a"] === undefined) morphIndexMap["a"] = 29;
+    if (morphIndexMap["i"] === undefined) morphIndexMap["i"] = 30;
+    if (morphIndexMap["u"] === undefined) morphIndexMap["u"] = 31;
+    if (morphIndexMap["e"] === undefined) morphIndexMap["e"] = 32;
+    if (morphIndexMap["o"] === undefined) morphIndexMap["o"] = 33;
+    if (morphIndexMap["blink"] === undefined) morphIndexMap["blink"] = 12;
+    if (morphIndexMap["blink_r"] === undefined) morphIndexMap["blink_r"] = 13;
+    if (morphIndexMap["blink_l"] === undefined) morphIndexMap["blink_l"] = 14;
+    if (morphIndexMap["joy"] === undefined) morphIndexMap["joy"] = 2;
+
+    if (currentVrm && currentVrm.lookAt) {
+      currentVrm.lookAt.autoUpdate = false;
     }
 
     console.log("[VTuber] Model setup complete. Head:", headBone ? headBone.name : "None", "Neck:", neckBone ? neckBone.name : "None", "Eyes:", eyeLeftBone ? eyeLeftBone.name : "None", eyeRightBone ? eyeRightBone.name : "None");
@@ -280,26 +297,26 @@
 
     if (data.vrm) {
       // Immediate blink/wink trigger registration upon packet arrival
-      if (data.vrm.blink >= 0.28) {
+      if (data.vrm.blink >= 0.18) {
         if (now > blinkHoldUntil) {
-          blinkHoldUntil = now + 100; // Hold for at least 100ms
+          blinkHoldUntil = now + 120; // Hold for at least 120ms to ensure full visible closure
           activeBlinkType = "blink";
         }
-      } else if (data.vrm.blink_l >= 0.40) {
+      } else if (data.vrm.blink_l >= 0.35) {
         if (now > blinkHoldUntil) {
-          blinkHoldUntil = now + 100;
+          blinkHoldUntil = now + 120;
           activeBlinkType = "blink_l";
         }
-      } else if (data.vrm.blink_r >= 0.40) {
+      } else if (data.vrm.blink_r >= 0.35) {
         if (now > blinkHoldUntil) {
-          blinkHoldUntil = now + 100;
+          blinkHoldUntil = now + 120;
           activeBlinkType = "blink_r";
         }
       }
 
       for (const [k, v] of Object.entries(data.vrm)) {
         if (targetMotion.vrm.hasOwnProperty(k)) {
-          // If in an active blink hold window, preserve eyelid closure
+          // If in an active blink hold window, preserve eyelid closure at 1.0
           if (now < blinkHoldUntil && k === activeBlinkType) {
             targetMotion.vrm[k] = 1.0;
           } else {
@@ -448,9 +465,9 @@
         effectiveTarget = Math.max(rawTargetVal, 1.0);
       }
 
-      // Asymmetric LERP: snap close quickly (0.90), open smoothly (0.35)
+      // Asymmetric LERP: snap close instantly (0.95), open smoothly (0.35)
       const isClosing = effectiveTarget > currentMotion.vrm[key];
-      const lerpFactor = isBlink ? (isClosing ? 0.90 : 0.35) : 0.45;
+      const lerpFactor = isBlink ? (isClosing ? 0.95 : 0.35) : 0.45;
 
       currentMotion.vrm[key] +=
         (effectiveTarget - currentMotion.vrm[key]) * lerpFactor;
@@ -461,7 +478,9 @@
       }
 
       if (currentVrm && currentVrm.blendShapeProxy) {
-        currentVrm.blendShapeProxy.setValue(key, currentMotion.vrm[key]);
+        try {
+          currentVrm.blendShapeProxy.setValue(key, currentMotion.vrm[key]);
+        } catch (_) {}
       }
 
       if (key !== "neutral" && currentMotion.vrm[key] > maxWeight) {
@@ -480,8 +499,9 @@
       for (const mesh of morphMeshes) {
         if (mesh.morphTargetInfluences) {
           for (const [k, v] of Object.entries(currentMotion.vrm)) {
-            if (morphIndexMap[k] !== undefined) {
-              mesh.morphTargetInfluences[morphIndexMap[k]] = v;
+            const idx = morphIndexMap[k];
+            if (idx !== undefined && idx < mesh.morphTargetInfluences.length) {
+              mesh.morphTargetInfluences[idx] = v;
             }
           }
         }

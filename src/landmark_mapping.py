@@ -393,18 +393,32 @@ def map_mediapipe_to_vrm(
 
     vrm = {name: 0.0 for name in VRM_BLENDSHAPES}
 
-    # 1. Mouth / Visemes - Robust jawOpen with head-tilt rejection
+    # 1. Mouth / Visemes - High sensitivity speech tracking with head-tilt protection
     jaw = g("jawOpen")
-    # Clean deadzone at 0.035 to guarantee closed mouth at rest or when tilting head down
-    jaw_active = _clamp((jaw - 0.035) * 2.5) if jaw > 0.035 else 0.0
+    # Clean resting deadzone at 0.025: when mouth is closed or head tilts down, jaw_active is 0.0
+    if jaw > 0.025:
+        # Standard speech jawOpen is 0.05 - 0.16. Scale 0.025..0.15 to 0.0..1.0
+        jaw_active = _clamp((jaw - 0.025) / (0.15 - 0.025))
+    else:
+        jaw_active = 0.0
 
     if landmarks:
         mar = compute_mar(landmarks)
-        # mar_rest = 0.20 accounts for natural lip thickness & head tilt foreshortening
-        mar_active = mar_to_mouth_open(mar, mar_rest=0.20, mar_max=0.42)
-        raw_a = _clamp(max(jaw_active, mar_active))
+        # Resting MAR is ~0.12 - 0.17. Speech MAR is ~0.19 - 0.32.
+        if mar > 0.18:
+            mar_active = _clamp((mar - 0.18) / (0.32 - 0.18))
+        else:
+            mar_active = 0.0
+        raw_speech = max(jaw_active, mar_active)
     else:
-        raw_a = jaw_active
+        raw_speech = jaw_active
+
+    # Non-linear boost curve: normal speech opens mouth cleanly (0.50..0.85)
+    # Whisper opens (0.25..0.45), wide jaw reaches 1.0
+    if raw_speech > 0.0:
+        raw_a = _clamp(pow(raw_speech, 0.70) * 1.25)
+    else:
+        raw_a = 0.0
 
     stretch = (g("mouthStretchLeft") + g("mouthStretchRight")) * 0.5
     smile = (g("mouthSmileLeft") + g("mouthSmileRight")) * 0.5
@@ -412,24 +426,24 @@ def map_mediapipe_to_vrm(
     funnel = g("mouthFunnel")
 
     # Phonetically distinct Japanese / Anime vowel classification:
-    # "O": Rounded open funnel or pucker with open jaw
-    is_o = funnel > 0.15 or (pucker > 0.18 and raw_a > 0.15)
-    vrm["o"] = _clamp(funnel * 1.6 + (pucker * 0.8 if raw_a > 0.1 else 0.0)) if is_o else 0.0
+    # "U": Protruded tight lips. Natural speech pucker is 0.06 - 0.16
+    is_u = pucker > 0.06 and funnel < 0.25 and raw_a < 0.45
+    vrm["u"] = _clamp((pucker - 0.04) * 4.5) if is_u else 0.0
 
-    # "U": Protruded tight lips with minimal opening
-    is_u = pucker > 0.18 and funnel < 0.25 and raw_a < 0.35 and not is_o
-    vrm["u"] = _clamp(pucker * 1.5) if is_u else 0.0
+    # "O": Rounded open funnel, or pucker with open jaw
+    is_o = funnel > 0.06 or (pucker > 0.06 and raw_a > 0.20)
+    vrm["o"] = _clamp(max(funnel * 3.5, (pucker * 2.5 if raw_a > 0.15 else 0.0))) if is_o else 0.0
 
     # "E": Horizontal mouth stretch with moderate/open jaw
-    is_e = stretch > 0.15 and raw_a > 0.15
-    vrm["e"] = _clamp(stretch * 1.3 + raw_a * 0.7) if is_e else 0.0
+    is_e = stretch > 0.06 and raw_a > 0.10
+    vrm["e"] = _clamp((stretch - 0.04) * 3.5 + raw_a * 0.5) if is_e else 0.0
 
-    # "I": Wide grin/smile with teeth close together (low jaw opening)
-    is_i = (stretch > 0.15 or smile > 0.25) and raw_a <= 0.15
-    vrm["i"] = _clamp(stretch * 1.6 + smile * 0.8) if is_i else 0.0
+    # "I": Wide grin/teeth visible with low jaw opening
+    is_i = (stretch > 0.06 or smile > 0.12) and raw_a <= 0.35 and not is_u and not is_o
+    vrm["i"] = _clamp(max((stretch - 0.04) * 3.5, (smile - 0.08) * 2.2)) if is_i else 0.0
 
-    # "A": Pure vertical jaw opening; subtract other vowel shapes so A doesn't dominate O, U, E, I
-    a_suppression = max(vrm["o"] * 0.75, vrm["u"] * 0.9, vrm["i"] * 0.8, vrm["e"] * 0.65)
+    # "A": Primary vertical jaw opening, minus other vowel shapes
+    a_suppression = max(vrm["o"] * 0.60, vrm["u"] * 0.85, vrm["i"] * 0.75, vrm["e"] * 0.50)
     vrm["a"] = _clamp(raw_a - a_suppression)
 
     vrm["neutral"] = _clamp(1.0 - (vrm["a"] + vrm["i"] + vrm["u"] + vrm["e"] + vrm["o"]))
@@ -438,8 +452,8 @@ def map_mediapipe_to_vrm(
     raw_l = g("eyeBlinkLeft")
     raw_r = g("eyeBlinkRight")
 
-    bl_l = _calibrate_blink(raw_l, deadzone=0.12, snap_thresh=0.28)
-    bl_r = _calibrate_blink(raw_r, deadzone=0.12, snap_thresh=0.28)
+    bl_l = _calibrate_blink(raw_l, deadzone=0.10, snap_thresh=0.22)
+    bl_r = _calibrate_blink(raw_r, deadzone=0.10, snap_thresh=0.22)
 
     if landmarks:
         ear_l, ear_r = compute_ear(landmarks)
@@ -464,25 +478,25 @@ def map_mediapipe_to_vrm(
     diff_r = bl_r - bl_l
 
     # A single-eye wink requires:
-    # 1. The winking eye is firmly closed (bl >= 0.50)
+    # 1. The winking eye is firmly closed (bl >= 0.40)
     # 2. The other eye is genuinely resting/open (bl_other < 0.20 and raw_other < 0.20)
-    # 3. The difference between eyes is distinct (diff >= 0.35)
-    is_wink_l = bl_l >= 0.50 and bl_r < 0.20 and raw_r < 0.20 and diff_l >= 0.35
-    is_wink_r = bl_r >= 0.50 and bl_l < 0.20 and raw_l < 0.20 and diff_r >= 0.35
+    # 3. The difference between eyes is distinct (diff >= 0.25)
+    is_wink_l = bl_l >= 0.40 and bl_r < 0.20 and raw_r < 0.20 and diff_l >= 0.25
+    is_wink_r = bl_r >= 0.40 and bl_l < 0.20 and raw_l < 0.20 and diff_r >= 0.25
 
     if is_wink_l:
-        # Deliberate left eye wink
+        # Deliberate left eye wink -> full 1.0 closure
         vrm["blink"] = 0.0
-        vrm["blink_l"] = bl_l
+        vrm["blink_l"] = 1.0
         vrm["blink_r"] = 0.0
     elif is_wink_r:
-        # Deliberate right eye wink
+        # Deliberate right eye wink -> full 1.0 closure
         vrm["blink"] = 0.0
         vrm["blink_l"] = 0.0
-        vrm["blink_r"] = bl_r
-    elif max(bl_l, bl_r) >= 0.25:
-        # Natural synchronized blink of both eyes
-        vrm["blink"] = max(bl_l, bl_r)
+        vrm["blink_r"] = 1.0
+    elif max(bl_l, bl_r) >= 0.18:
+        # Natural synchronized blink of both eyes -> snap to 1.0 full closure
+        vrm["blink"] = 1.0
         vrm["blink_l"] = 0.0
         vrm["blink_r"] = 0.0
     else:

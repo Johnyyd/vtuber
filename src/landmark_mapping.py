@@ -202,46 +202,60 @@ def map_mediapipe_to_vrm(mp_blendshapes: Dict[str, float]) -> Dict[str, float]:
 
     vrm = {name: 0.0 for name in VRM_BLENDSHAPES}
 
-    # 1. Mouth Deadzone & Visemes
+    # 1. Mouth / Visemes - Driven directly by jawOpen for reliable speech
     jaw = g("jawOpen")
-    # Deadzone at 0.05 to keep mouth cleanly shut when resting/silent
-    jaw_active = max(0.0, (jaw - 0.05) / 0.95) if jaw > 0.05 else 0.0
-    mouth_close = g("mouthClose")
+    # Deadzone 0.05, sensitive gain above
+    jaw_active = _clamp((jaw - 0.05) * 2.2) if jaw > 0.05 else 0.0
     stretch = (g("mouthStretchLeft") + g("mouthStretchRight")) * 0.5
     smile = (g("mouthSmileLeft") + g("mouthSmileRight")) * 0.5
     pucker = g("mouthPucker")
     funnel = g("mouthFunnel")
 
-    vrm["a"] = _clamp(jaw_active * 1.4 - mouth_close * 0.5)
-    vrm["i"] = _clamp(stretch * 0.7 + smile * 0.5 - jaw_active * 0.3)
-    vrm["u"] = _clamp(pucker * 1.2 - stretch * 0.4)
-    vrm["e"] = _clamp(jaw_active * 0.5 + stretch * 0.6 - pucker * 0.4)
-    vrm["o"] = _clamp(funnel * 0.8 + jaw_active * 0.6 + pucker * 0.3)
+    # "A": Primary mouth open viseme
+    vrm["a"] = jaw_active
+
+    # "I": Horizontal smile / grin stretch
+    vrm["i"] = _clamp((stretch * 0.7 + smile * 0.5) if jaw_active < 0.25 else 0.0)
+
+    # "U": Rounded whistle / pucker, active only when puckered with relatively closed mouth
+    vrm["u"] = _clamp(pucker * 0.8 if (pucker > 0.5 and jaw_active < 0.25) else 0.0)
+
+    # "E": Intermediate open stretch
+    vrm["e"] = _clamp((jaw_active * 0.6 + stretch * 0.5) if (jaw_active > 0.1 and stretch > 0.15) else 0.0)
+
+    # "O": Funnel / round open mouth
+    vrm["o"] = _clamp(funnel * 0.9 if funnel > 0.25 else 0.0)
 
     vrm["neutral"] = _clamp(1.0 - (vrm["a"] + vrm["i"] + vrm["u"] + vrm["e"] + vrm["o"]))
 
     # 2. Eye Blinks & Independent Winking
     raw_l = g("eyeBlinkLeft")
     raw_r = g("eyeBlinkRight")
-    blink_l = _calibrate_blink(raw_l)
-    blink_r = _calibrate_blink(raw_r)
+    squint_l = g("eyeSquintLeft")
+    squint_r = g("eyeSquintRight")
+    # Include eyelid squint for webcam lighting robustness
+    eff_l = max(raw_l, squint_l * 0.70)
+    eff_r = max(raw_r, squint_r * 0.70)
 
-    # If both eyes are closing together, activate simultaneous blink
-    if blink_l > 0.3 and blink_r > 0.3:
-        vrm["blink"] = max(blink_l, blink_r)
-        vrm["blink_l"] = blink_l
-        vrm["blink_r"] = blink_r
+    bl_l = _clamp((eff_l - 0.08) * 2.6) if eff_l > 0.08 else 0.0
+    bl_r = _clamp((eff_r - 0.08) * 2.6) if eff_r > 0.08 else 0.0
+
+    if bl_l > 0.25 and bl_r > 0.25:
+        # Both eyes blinking
+        vrm["blink"] = max(bl_l, bl_r)
+        vrm["blink_l"] = 0.0
+        vrm["blink_r"] = 0.0
     else:
         # Independent winking
         vrm["blink"] = 0.0
-        vrm["blink_l"] = blink_l
-        vrm["blink_r"] = blink_r
+        vrm["blink_l"] = bl_l
+        vrm["blink_r"] = bl_r
 
     # 3. Facial Expressions
-    vrm["joy"] = _clamp(smile * 0.95)
+    vrm["joy"] = _clamp((smile - 0.10) * 1.8 if smile > 0.10 else 0.0)
     vrm["angry"] = _clamp((g("browDownLeft") + g("browDownRight")) * 0.8)
     vrm["sorrow"] = _clamp(g("browInnerUp") * 0.85)
-    vrm["fun"] = _clamp((g("eyeWideLeft") + g("eyeWideRight")) * 0.5 + jaw_active * 0.5)
+    vrm["fun"] = _clamp((g("eyeWideLeft") + g("eyeWideRight")) * 0.5 + jaw_active * 0.3)
 
     # 4. Gaze Direction
     vrm["lookup"] = _clamp((g("eyeLookUpLeft") + g("eyeLookUpRight")) * 0.6)
@@ -252,11 +266,13 @@ def map_mediapipe_to_vrm(mp_blendshapes: Dict[str, float]) -> Dict[str, float]:
     return vrm
 
 
-def compute_head_pose_from_matrix(matrix: np.ndarray) -> Dict[str, float]:
+def compute_head_pose_from_matrix(
+    matrix: np.ndarray,
+    pitch_offset_deg: float = 0.0,
+) -> Dict[str, float]:
     """
     Extract 3D head rotation angles (Pitch, Yaw, Roll in radians) from MediaPipe 4x4 matrix.
-    Uses cv2.RQDecomp3x3 on the rotation submatrix to completely decouple head pose
-    from facial movements (e.g. mouth opening).
+    Uses cv2.RQDecomp3x3 on the rotation submatrix with optional camera tilt compensation.
     """
     if matrix is None:
         return {"pitch": 0.0, "yaw": 0.0, "roll": 0.0}
@@ -268,14 +284,15 @@ def compute_head_pose_from_matrix(matrix: np.ndarray) -> Dict[str, float]:
     R = mat[:3, :3]
     angles, _, _, _, _, _ = cv2.RQDecomp3x3(R)
     # RQDecomp3x3 returns angles in degrees: [pitch, yaw, roll]
-    pitch = float(np.radians(angles[0]))
+    pitch_deg = angles[0] - pitch_offset_deg
+    pitch = float(np.radians(pitch_deg))
     yaw = float(np.radians(angles[1]))
     roll = float(np.radians(angles[2]))
 
     return {
         "pitch": float(np.clip(pitch, -0.6, 0.6)),
-        "yaw": float(np.clip(yaw, -0.8, 0.8)),
-        "roll": float(np.clip(roll, -0.6, 0.6)),
+        "yaw": float(np.clip(yaw, -0.7, 0.7)),
+        "roll": float(np.clip(roll, -0.5, 0.5)),
     }
 
 
@@ -283,13 +300,14 @@ def compute_head_pose(
     landmarks: Dict[str, Tuple[float, float, float]],
     frame_shape: Tuple[int, int] = (480, 640),
     matrix: Optional[np.ndarray] = None,
+    pitch_offset_deg: float = 0.0,
 ) -> Dict[str, float]:
     """
     Compute 3D head rotation angles (Pitch, Yaw, Roll in radians).
     Prefers 4x4 matrix decomposition; falls back to landmark geometry.
     """
     if matrix is not None:
-        return compute_head_pose_from_matrix(matrix)
+        return compute_head_pose_from_matrix(matrix, pitch_offset_deg=pitch_offset_deg)
 
     required_keys = ["lm1", "lm33", "lm263"]
     if not landmarks or not all(k in landmarks for k in required_keys):

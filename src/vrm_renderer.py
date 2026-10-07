@@ -137,6 +137,7 @@ class TrackingWorker(QThread):
                     lm_list[0] if lm_list else {},
                     frame_shape=(h, w),
                     matrix=matrix,
+                    pitch_offset_deg=18.0,
                 )
 
                 # Filter rotation to eliminate jitter while keeping instant response

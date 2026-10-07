@@ -310,10 +310,10 @@
     // Apply head and neck bone rotations (Euler: X=pitch, Y=yaw, Z=roll)
     // Pitch: inverted so looking up tilts head backward
     // Yaw: follows natural user gaze
-    // Roll: corrected so tilting head left/right tilts in user direction (mirror parity)
+    // Roll: inverted to correct left/right tilt inversion
     const p = -currentMotion.rotation.pitch;
     const y = currentMotion.rotation.yaw;
-    const r = currentMotion.rotation.roll;
+    const r = -currentMotion.rotation.roll;
 
     if (neckBone) {
       neckBone.rotation.set(p * 0.3, y * 0.3, r * 0.3);
@@ -326,52 +326,43 @@
     let topExpression = "Neutral";
     let maxWeight = 0.0;
 
-    // 1. Primary: Drive standard VRM blendShapeProxy if currentVrm has it
-    if (currentVrm && currentVrm.blendShapeProxy) {
-      for (const [key, targetVal] of Object.entries(targetMotion.vrm)) {
-        const lerpFactor = (key === "blink" || key === "blink_l" || key === "blink_r") ? 0.85 : 0.40;
-        currentMotion.vrm[key] +=
-          (targetVal - currentMotion.vrm[key]) * lerpFactor;
+    for (const [key, targetVal] of Object.entries(targetMotion.vrm)) {
+      const lerpFactor = (key === "blink" || key === "blink_l" || key === "blink_r") ? 0.85 : 0.45;
+      currentMotion.vrm[key] +=
+        (targetVal - currentMotion.vrm[key]) * lerpFactor;
 
+      if (currentVrm && currentVrm.blendShapeProxy) {
         currentVrm.blendShapeProxy.setValue(key, currentMotion.vrm[key]);
-
-        if (key !== "neutral" && currentMotion.vrm[key] > maxWeight) {
-          maxWeight = currentMotion.vrm[key];
-          topExpression = key.toUpperCase();
-        }
       }
+
+      if (key !== "neutral" && currentMotion.vrm[key] > maxWeight) {
+        maxWeight = currentMotion.vrm[key];
+        topExpression = key.toUpperCase();
+      }
+    }
+
+    if (currentVrm && currentVrm.blendShapeProxy) {
       currentVrm.blendShapeProxy.update();
-    } else if (mouthMesh && mouthMesh.morphTargetInfluences) {
-      // Fallback: direct mesh morph targets
-      const yongIndices = {
-        fun: 0, sorrow: 1, angry: 2, joy: 3,
-        blink: 10, blink_r: 11, blink_l: 12,
-        a: 23, i: 24, u: 25, e: 26, o: 27,
-      };
+    }
 
-      for (const [key, targetVal] of Object.entries(targetMotion.vrm)) {
-        const lerpFactor = (key === "blink" || key === "blink_l" || key === "blink_r") ? 0.60 : 0.35;
-        currentMotion.vrm[key] +=
-          (targetVal - currentMotion.vrm[key]) * lerpFactor;
-
-        const idx = morphIndexMap[key] !== undefined ? morphIndexMap[key] : yongIndices[key];
-        if (idx !== undefined && idx < mouthMesh.morphTargetInfluences.length) {
-          mouthMesh.morphTargetInfluences[idx] = currentMotion.vrm[key];
-        }
-
-        if (key !== "neutral" && currentMotion.vrm[key] > maxWeight) {
-          maxWeight = currentMotion.vrm[key];
-          topExpression = key.toUpperCase();
-        }
-      }
-
-      // Also apply any mapped VRC targets
-      for (const [key, targetVal] of Object.entries(targetMotion.vrc)) {
-        const morphIdx = morphIndexMap[key];
-        if (morphIdx !== undefined) {
-          mouthMesh.morphTargetInfluences[morphIdx] = targetVal;
-        }
-      }
+    // Direct mesh morph target update on Face.baked to guarantee active blinking and mouth movements
+    if (mouthMesh && mouthMesh.morphTargetInfluences) {
+      // Yong Face.baked indices:
+      // Blink: 10, Blink_R: 11, Blink_L: 12
+      // A: 23, I: 24, U: 25, E: 26, O: 27
+      // Fun: 0, Sorrow: 1, Angry: 2, Joy: 3
+      mouthMesh.morphTargetInfluences[10] = currentMotion.vrm.blink || 0;
+      mouthMesh.morphTargetInfluences[11] = currentMotion.vrm.blink_r || 0;
+      mouthMesh.morphTargetInfluences[12] = currentMotion.vrm.blink_l || 0;
+      mouthMesh.morphTargetInfluences[23] = currentMotion.vrm.a || 0;
+      mouthMesh.morphTargetInfluences[24] = currentMotion.vrm.i || 0;
+      mouthMesh.morphTargetInfluences[25] = currentMotion.vrm.u || 0;
+      mouthMesh.morphTargetInfluences[26] = currentMotion.vrm.e || 0;
+      mouthMesh.morphTargetInfluences[27] = currentMotion.vrm.o || 0;
+      mouthMesh.morphTargetInfluences[3]  = currentMotion.vrm.joy || 0;
+      mouthMesh.morphTargetInfluences[2]  = currentMotion.vrm.angry || 0;
+      mouthMesh.morphTargetInfluences[1]  = currentMotion.vrm.sorrow || 0;
+      mouthMesh.morphTargetInfluences[0]  = currentMotion.vrm.fun || 0;
     }
 
     const expEl = document.getElementById("hud-expression");

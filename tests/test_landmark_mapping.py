@@ -173,6 +173,22 @@ class TestLandmarkMapping(unittest.TestCase):
         self.assertEqual(vrm_r["blink_l"], 0.0)
         self.assertEqual(vrm_r["blink_r"], 1.0)
 
+    def test_blink_uneven_camera_lighting_registers_cleanly(self):
+        try:
+            from landmark_mapping import map_mediapipe_to_vrm
+        except ImportError:
+            from src.landmark_mapping import map_mediapipe_to_vrm
+
+        # User closes both eyes, but one side of face is shadowed / camera at angle
+        mp_uneven = {
+            "eyeBlinkLeft": 0.72,
+            "eyeBlinkRight": 0.32,
+        }
+        vrm = map_mediapipe_to_vrm(mp_uneven)
+        self.assertGreaterEqual(vrm["blink"], 0.8, "Both eyes must close when blinking under uneven lighting")
+        self.assertEqual(vrm["blink_l"], 0.0)
+        self.assertEqual(vrm["blink_r"], 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

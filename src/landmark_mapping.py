@@ -75,8 +75,8 @@ def map_mediapipe_to_vrc(mp_blendshapes: Dict[str, float]) -> Dict[str, float]:
     vrc: Dict[str, float] = {name: 0.0 for name in VRC_TARGETS}
 
     # 1. Eye Blink (both eyes)
-    blink_avg = (g("eyeBlinkLeft") + g("eyeBlinkRight")) * 0.5
-    vrc["vrc_blink"] = _calibrate_blink(blink_avg, deadzone=0.16, snap_thresh=0.45)
+    blink_val = max(g("eyeBlinkLeft"), g("eyeBlinkRight"))
+    vrc["vrc_blink"] = _calibrate_blink(blink_val, deadzone=0.15, snap_thresh=0.35)
 
     # 2. Visemes
     # "aa" - wide open mouth (jawOpen)
@@ -138,7 +138,7 @@ def map_mediapipe_to_vrc(mp_blendshapes: Dict[str, float]) -> Dict[str, float]:
     return vrc
 
 
-def _calibrate_blink(raw: float, deadzone: float = 0.16, snap_thresh: float = 0.45) -> float:
+def _calibrate_blink(raw: float, deadzone: float = 0.15, snap_thresh: float = 0.35) -> float:
     """
     Calibrate raw MediaPipe blink value:
     - Below deadzone: 0.0 (prevents sleepy/half-closed eyes when open)
@@ -233,19 +233,27 @@ def map_mediapipe_to_vrm(mp_blendshapes: Dict[str, float]) -> Dict[str, float]:
     raw_l = g("eyeBlinkLeft")
     raw_r = g("eyeBlinkRight")
 
-    bl_l = _calibrate_blink(raw_l, deadzone=0.16, snap_thresh=0.45)
-    bl_r = _calibrate_blink(raw_r, deadzone=0.16, snap_thresh=0.45)
+    bl_l = _calibrate_blink(raw_l, deadzone=0.15, snap_thresh=0.35)
+    bl_r = _calibrate_blink(raw_r, deadzone=0.15, snap_thresh=0.35)
 
-    if bl_l > 0.0 and bl_r > 0.0 and abs(bl_l - bl_r) < 0.25:
-        # Synchronized natural blink: both eyes closing together
+    # Distinguish natural synchronized blink vs deliberate single-eye wink:
+    # A wink requires one eye to be firmly closed (>= 0.35) while the opposite eye remains resting/open (< 0.18)
+    if raw_l >= 0.35 and raw_r < 0.18:
+        # Deliberate left eye wink
+        vrm["blink"] = 0.0
+        vrm["blink_l"] = bl_l
+        vrm["blink_r"] = 0.0
+    elif raw_r >= 0.35 and raw_l < 0.18:
+        # Deliberate right eye wink
+        vrm["blink"] = 0.0
+        vrm["blink_l"] = 0.0
+        vrm["blink_r"] = bl_r
+    else:
+        # Natural blink or resting open eyes
+        # Using max(bl_l, bl_r) guarantees 100% reliable closure even under uneven camera lighting
         vrm["blink"] = max(bl_l, bl_r)
         vrm["blink_l"] = 0.0
         vrm["blink_r"] = 0.0
-    else:
-        # Independent winking or resting (both 0.0)
-        vrm["blink"] = 0.0
-        vrm["blink_l"] = bl_l
-        vrm["blink_r"] = bl_r
 
     # 3. Facial Expressions
     vrm["joy"] = _clamp((smile - 0.10) * 1.8 if smile > 0.10 else 0.0)

@@ -8,7 +8,7 @@ body, html {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: radial-gradient(circle at 50% 35%, #1e1e2f 0%, #0d0d15 100%);
+  background: transparent;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   user-select: none;
 }
@@ -33,7 +33,7 @@ body, html {
   left: 0;
   width: 100%;
   height: 100%;
-  background: #0d0d15;
+  background: transparent;
   display: flex;
   flex-direction: column;
   align-items: center;

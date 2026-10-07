@@ -258,6 +258,10 @@ class VTuberWindow(QMainWindow):
         self.setWindowTitle("VTuber 3D Avatar")
         self.resize(width, height)
 
+        # Make window completely transparent, frameless, and stay on top
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
+
         # Central widget and WebEngineView
         central_widget = QWidget(self)
         self.setCentralWidget(central_widget)
@@ -265,7 +269,12 @@ class VTuberWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
 
         self.web_view = QWebEngineView(self)
+        self.web_view.page().setBackgroundColor(Qt.GlobalColor.transparent)
         layout.addWidget(self.web_view)
+
+        # Create a transparent overlay to capture mouse drag events
+        self.drag_overlay = QWidget(self)
+        self.drag_overlay.setStyleSheet("background: transparent;")
 
         # Configure WebEngine settings for local 3D rendering
         settings = self.web_view.settings()
@@ -284,6 +293,24 @@ class VTuberWindow(QMainWindow):
         self.worker = TrackingWorker(camera_id=camera_id)
         self.worker.motion_ready.connect(self.on_motion_ready)
         self.worker.start()
+
+    def resizeEvent(self, event):
+        """Ensure the drag overlay covers the entire window."""
+        if hasattr(self, 'drag_overlay'):
+            self.drag_overlay.resize(event.size())
+        super().resizeEvent(event)
+
+    def mousePressEvent(self, event):
+        """Allow dragging the frameless window."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
+
+    def mouseMoveEvent(self, event):
+        """Handle window dragging."""
+        if event.buttons() == Qt.MouseButton.LeftButton and hasattr(self, 'drag_pos'):
+            self.move(event.globalPosition().toPoint() - self.drag_pos)
+            event.accept()
 
     def on_motion_ready(self, packet: dict):
         """Forward motion data into Javascript runtime via direct in-memory IPC."""

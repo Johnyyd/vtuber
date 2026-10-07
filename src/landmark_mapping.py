@@ -508,6 +508,13 @@ def map_mediapipe_to_vrm(
     # Fade joy ONLY if jaw is very wide open (A > 0.5), to allow smiling while talking normally.
     base_joy = (smile - 0.10) * 1.8 if smile > 0.10 else 0.0
     vrm["joy"] = _clamp(base_joy - vrm["a"] * 0.8)
+    
+    # Prevent double-application of blink + joy (which causes eyelashes to clip 200% into cheeks).
+    # Since Joy already closes the eyes in most VRM models, we suppress physical blinks proportionally to joy.
+    if vrm["joy"] > 0.0:
+        vrm["blink"] = _clamp(vrm["blink"] - vrm["joy"])
+        vrm["blink_l"] = _clamp(vrm["blink_l"] - vrm["joy"])
+        vrm["blink_r"] = _clamp(vrm["blink_r"] - vrm["joy"])
     vrm["angry"] = _clamp((g("browDownLeft") + g("browDownRight")) * 0.8)
     vrm["sorrow"] = _clamp(g("browInnerUp") * 0.85)
     vrm["fun"] = _clamp((g("eyeWideLeft") + g("eyeWideRight")) * 0.5 + vrm["a"] * 0.3)

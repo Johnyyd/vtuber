@@ -29,22 +29,32 @@ from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import QWebEngineSettings
 
 from face_detector import create_face_landmarker, parse_landmarks, parse_blendshapes
-from landmark_mapping import map_mediapipe_to_vrc, compute_head_pose, VRC_TARGETS
+from landmark_mapping import (
+    map_mediapipe_to_vrc,
+    map_mediapipe_to_vrm,
+    compute_head_pose,
+    VRC_TARGETS,
+    VRM_BLENDSHAPES,
+)
 
 
 def format_motion_packet(
     vrc: Optional[Dict[str, float]] = None,
-    rotation: Optional[Dict[str, float]] = None
+    rotation: Optional[Dict[str, float]] = None,
+    vrm: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Any]:
     """
-    Format VRC blendshape weights and 3D head rotation into a clean motion packet.
+    Format VRM and VRC blendshape weights and 3D head rotation into a clean motion packet.
     """
     if vrc is None:
         vrc = {name: (1.0 if name == "vrc_v_sil" else 0.0) for name in VRC_TARGETS}
+    if vrm is None:
+        vrm = {name: (1.0 if name == "neutral" else 0.0) for name in VRM_BLENDSHAPES}
     if rotation is None:
         rotation = {"pitch": 0.0, "yaw": 0.0, "roll": 0.0}
 
     return {
+        "vrm": vrm,
         "vrc": vrc,
         "rotation": rotation,
         "timestamp": time.time(),
@@ -101,13 +111,14 @@ class TrackingWorker(QThread):
             mp_blendshapes = parse_blendshapes(result)
 
             if mp_blendshapes and lm_list:
+                vrm_shapes = map_mediapipe_to_vrm(mp_blendshapes)
                 vrc = map_mediapipe_to_vrc(mp_blendshapes)
                 rotation = compute_head_pose(lm_list[0], frame_shape=(h, w))
-                packet = format_motion_packet(vrc, rotation)
+                packet = format_motion_packet(vrc=vrc, rotation=rotation, vrm=vrm_shapes)
                 self.motion_ready.emit(packet)
             else:
                 # No face detected in frame -> send decay signal
-                packet = format_motion_packet(None, None)
+                packet = format_motion_packet(None, None, None)
                 self.motion_ready.emit(packet)
 
         cap.release()

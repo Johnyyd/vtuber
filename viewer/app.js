@@ -8,12 +8,28 @@
   let mouthMesh = null;
   let headBone = null;
   let neckBone = null;
+  const clock = new THREE.Clock();
 
-  // Dictionary mapping our VRC target keys to mesh morph target indices
+  // Dictionary mapping target keys to mesh morph target indices
   const morphIndexMap = {};
 
   // Motion target and current interpolated values
   const targetMotion = {
+    vrm: {
+      neutral: 1.0,
+      a: 0.0,
+      i: 0.0,
+      u: 0.0,
+      e: 0.0,
+      o: 0.0,
+      blink: 0.0,
+      blink_l: 0.0,
+      blink_r: 0.0,
+      joy: 0.0,
+      angry: 0.0,
+      sorrow: 0.0,
+      fun: 0.0,
+    },
     vrc: {
       vrc_blink: 0.0,
       vrc_v_aa: 0.0,
@@ -40,6 +56,7 @@
   };
 
   const currentMotion = {
+    vrm: { ...targetMotion.vrm },
     vrc: { ...targetMotion.vrc },
     rotation: { ...targetMotion.rotation },
   };
@@ -58,8 +75,8 @@
     // 2. Camera setup - focused on avatar upper body with ample headroom for hair/forehead
     const aspect = window.innerWidth / window.innerHeight;
     camera = new THREE.PerspectiveCamera(30.0, aspect, 0.1, 20.0);
-    camera.position.set(0.0, 1.40, 1.15);
-    camera.lookAt(0.0, 1.32, 0.0);
+    camera.position.set(0.0, 1.40, 1.25);
+    camera.lookAt(0.0, 1.34, 0.0);
 
     // 3. Renderer setup
     renderer = new THREE.WebGLRenderer({
@@ -90,8 +107,8 @@
 
     window.addEventListener("resize", onWindowResize);
 
-    // 5. Load VRM Model
-    loadModel("../assets/character.vrm");
+    // 5. Load VRM Model (Yong)
+    loadModel("../assets/Yong.vrm");
 
     // 6. Start Render Loop
     requestAnimationFrame(animate);
@@ -128,7 +145,7 @@
                 scene.add(vrm.scene);
                 setupModelReferences(vrm.scene);
                 hideLoading();
-                console.log("[VTuber] VRM model loaded successfully!");
+                console.log("[VTuber] VRM model loaded successfully via THREE_VRM.VRM.from!");
               })
               .catch((err) => {
                 console.warn("[VTuber] VRM.from parser error, fallback to gltf.scene:", err);
@@ -159,7 +176,7 @@
       (err) => {
         console.error("[VTuber] GLTF loader network error:", err);
         const txt = document.getElementById("loading-text");
-        if (txt) txt.innerText = "Error loading model. Check assets/character.vrm";
+        if (txt) txt.innerText = "Error loading model. Check assets/Yong.vrm";
       }
     );
   }
@@ -167,32 +184,51 @@
   function setupModelReferences(root) {
     // Face the camera directly (rotate 180 degrees around Y axis)
     root.rotation.y = Math.PI;
-    // Lower model slightly so head and forehead are never cropped at top
-    root.position.y = -0.08;
+    // Lower model slightly so head and forehead/hair have comfortable headroom
+    root.position.y = -0.10;
 
-    // Traverse to find Mesh_InteriorMouth2 and bone nodes
+    // Resolve humanoid bones via THREE_VRM humanoid if available
+    if (currentVrm && currentVrm.humanoid) {
+      try {
+        headBone = currentVrm.humanoid.getBoneNode("head") ||
+                   (window.THREE_VRM && window.THREE_VRM.VRMSchema &&
+                    currentVrm.humanoid.getBoneNode(window.THREE_VRM.VRMSchema.HumanoidBoneName.Head));
+        neckBone = currentVrm.humanoid.getBoneNode("neck") ||
+                   (window.THREE_VRM && window.THREE_VRM.VRMSchema &&
+                    currentVrm.humanoid.getBoneNode(window.THREE_VRM.VRMSchema.HumanoidBoneName.Neck));
+      } catch (e) {
+        console.warn("[VTuber] Humanoid bone lookup notice:", e);
+      }
+    }
+
+    // Traverse root to find mesh morph targets and fallback bones
     root.traverse((obj) => {
       if (obj.isMesh && obj.morphTargetDictionary) {
         mouthMesh = obj;
-        // Build mapping from VRC morph names to morph target indices
+        // Build mapping from target keys to morph target indices
         for (const [targetName, idx] of Object.entries(obj.morphTargetDictionary)) {
-          // Check if target name ends with vrc_* (e.g. blendShape3.vrc_blink)
           for (const key of Object.keys(targetMotion.vrc)) {
             if (targetName.includes(key)) {
               morphIndexMap[key] = idx;
             }
           }
+          for (const key of Object.keys(targetMotion.vrm)) {
+            if (targetName.toLowerCase() === key.toLowerCase() || targetName.endsWith(key)) {
+              morphIndexMap[key] = idx;
+            }
+          }
         }
-        console.log("[VTuber] Mapped morph targets:", morphIndexMap);
       }
 
-      if (obj.name === "mixamorig:Head" || obj.name.endsWith("Head")) {
+      if (!headBone && (obj.name === "J_Bip_C_Head" || obj.name === "mixamorig:Head" || obj.name.endsWith("Head"))) {
         headBone = obj;
       }
-      if (obj.name === "mixamorig:Neck" || obj.name.endsWith("Neck")) {
+      if (!neckBone && (obj.name === "J_Bip_C_Neck" || obj.name === "mixamorig:Neck" || obj.name.endsWith("Neck"))) {
         neckBone = obj;
       }
     });
+
+    console.log("[VTuber] Model setup complete. Head:", headBone ? headBone.name : "None", "Neck:", neckBone ? neckBone.name : "None");
   }
 
   function onWindowResize() {
@@ -205,9 +241,19 @@
   window.updateMotion = function (data) {
     if (!data) return;
 
+    if (data.vrm) {
+      for (const [k, v] of Object.entries(data.vrm)) {
+        if (targetMotion.vrm.hasOwnProperty(k)) {
+          targetMotion.vrm[k] = v;
+        }
+      }
+    }
+
     if (data.vrc) {
       for (const [k, v] of Object.entries(data.vrc)) {
-        targetMotion.vrc[k] = v;
+        if (targetMotion.vrc.hasOwnProperty(k)) {
+          targetMotion.vrc[k] = v;
+        }
       }
     }
 
@@ -244,6 +290,9 @@
       targetMotion.rotation.pitch = 0.0;
       targetMotion.rotation.yaw = 0.0;
       targetMotion.rotation.roll = 0.0;
+      for (const k of Object.keys(targetMotion.vrm)) {
+        targetMotion.vrm[k] = k === "neutral" ? 1.0 : 0.0;
+      }
       for (const k of Object.keys(targetMotion.vrc)) {
         targetMotion.vrc[k] = k === "vrc_v_sil" ? 1.0 : 0.0;
       }
@@ -271,24 +320,54 @@
       headBone.rotation.set(p * 0.7, y * 0.7, r * 0.7);
     }
 
-    // LERP interpolate morph targets
-    let topExpression = "Rest";
+    // LERP interpolate expressions and blendshapes
+    let topExpression = "Neutral";
     let maxWeight = 0.0;
 
-    if (mouthMesh && mouthMesh.morphTargetInfluences) {
-      for (const [key, targetVal] of Object.entries(targetMotion.vrc)) {
-        const lerpFactor = key === "vrc_blink" ? 0.55 : 0.35;
-        currentMotion.vrc[key] +=
-          (targetVal - currentMotion.vrc[key]) * lerpFactor;
+    // 1. Primary: Drive standard VRM blendShapeProxy if currentVrm has it
+    if (currentVrm && currentVrm.blendShapeProxy) {
+      for (const [key, targetVal] of Object.entries(targetMotion.vrm)) {
+        const lerpFactor = (key === "blink" || key === "blink_l" || key === "blink_r") ? 0.60 : 0.35;
+        currentMotion.vrm[key] +=
+          (targetVal - currentMotion.vrm[key]) * lerpFactor;
 
-        const morphIdx = morphIndexMap[key];
-        if (morphIdx !== undefined) {
-          mouthMesh.morphTargetInfluences[morphIdx] = currentMotion.vrc[key];
+        currentVrm.blendShapeProxy.setValue(key, currentMotion.vrm[key]);
+
+        if (key !== "neutral" && currentMotion.vrm[key] > maxWeight) {
+          maxWeight = currentMotion.vrm[key];
+          topExpression = key.toUpperCase();
+        }
+      }
+      currentVrm.blendShapeProxy.update();
+    } else if (mouthMesh && mouthMesh.morphTargetInfluences) {
+      // Fallback: direct mesh morph targets
+      const yongIndices = {
+        fun: 0, sorrow: 1, angry: 2, joy: 3,
+        blink: 10, blink_r: 11, blink_l: 12,
+        a: 23, i: 24, u: 25, e: 26, o: 27,
+      };
+
+      for (const [key, targetVal] of Object.entries(targetMotion.vrm)) {
+        const lerpFactor = (key === "blink" || key === "blink_l" || key === "blink_r") ? 0.60 : 0.35;
+        currentMotion.vrm[key] +=
+          (targetVal - currentMotion.vrm[key]) * lerpFactor;
+
+        const idx = morphIndexMap[key] !== undefined ? morphIndexMap[key] : yongIndices[key];
+        if (idx !== undefined && idx < mouthMesh.morphTargetInfluences.length) {
+          mouthMesh.morphTargetInfluences[idx] = currentMotion.vrm[key];
         }
 
-        if (key !== "vrc_v_sil" && currentMotion.vrc[key] > maxWeight) {
-          maxWeight = currentMotion.vrc[key];
-          topExpression = key.replace("vrc_", "");
+        if (key !== "neutral" && currentMotion.vrm[key] > maxWeight) {
+          maxWeight = currentMotion.vrm[key];
+          topExpression = key.toUpperCase();
+        }
+      }
+
+      // Also apply any mapped VRC targets
+      for (const [key, targetVal] of Object.entries(targetMotion.vrc)) {
+        const morphIdx = morphIndexMap[key];
+        if (morphIdx !== undefined) {
+          mouthMesh.morphTargetInfluences[morphIdx] = targetVal;
         }
       }
     }
@@ -298,9 +377,9 @@
       expEl.innerText = maxWeight > 0.2 ? topExpression : "Neutral";
     }
 
-    // Update VRM internal components if present
+    // Update VRM internal components (spring bones, physics)
     if (currentVrm) {
-      const delta = 1.0 / 60.0;
+      const delta = clock.getDelta();
       currentVrm.update(delta);
     }
 

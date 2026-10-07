@@ -7,8 +7,9 @@ A real-time VTuber desktop application that tracks facial expressions and head m
 ## Features
 
 - **Live Webcam Facial Tracking**: Uses MediaPipe FaceLandmarker (video mode) capturing 478 landmarks and 52 ARKit facial blendshapes.
-- **Accurate Morph Target Mapping**: Maps MediaPipe blendshapes to the 16 VRChat morph targets present in `assets/character.vrm` (`vrc_blink`, `vrc_v_aa`, `vrc_v_oh`, `vrc_v_ee`, `vrc_v_ou`, `vrc_v_ih`, `vrc_v_sil`, etc.).
-- **3D Head Pose Computation**: Computes natural 3D head rotation (Pitch, Yaw, Roll) to drive neck (`mixamorig:Neck`) and head (`mixamorig:Head`) bones.
+- **Accurate Morph Target Mapping**: Maps MediaPipe blendshapes to standard VRM 0.x blendshape presets for `assets/Yong.vrm` (`a`, `i`, `u`, `e`, `o`, `blink`, `blink_l`, `blink_r`, `joy`, `angry`, `sorrow`, `fun`) as well as VRChat morph targets.
+- **3D Head Pose Computation**: Computes natural 3D head rotation (Pitch, Yaw, Roll) to drive neck (`J_Bip_C_Neck`) and head (`J_Bip_C_Head`) humanoid bones with natural looking direction.
+- **Physics & Secondary Motion**: Supports VRM Spring Bones for hair and clothing physics.
 - **Smooth 60 FPS Viewport**: Studio 3D rendering with Three.js and `@pixiv/three-vrm` with LERP smoothing for jitter-free animation.
 - **Zero-Network Desktop Architecture**: Runs inside a native desktop window (PyQt6 / QWebEngineView) exchanging tracking data directly in RAM (`runJavaScript`), 100% offline.
 

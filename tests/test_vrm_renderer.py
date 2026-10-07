@@ -1,6 +1,6 @@
 import json
 import unittest
-from landmark_mapping import map_mediapipe_to_vrc, compute_head_pose
+from landmark_mapping import map_mediapipe_to_vrc, map_mediapipe_to_vrm, compute_head_pose
 try:
     from vrm_renderer import format_motion_packet
 except ImportError:
@@ -10,11 +10,15 @@ except ImportError:
 class TestVRMRenderer(unittest.TestCase):
     def test_format_motion_packet_structure(self):
         vrc_input = map_mediapipe_to_vrc({"jawOpen": 0.6, "eyeBlinkLeft": 0.9, "eyeBlinkRight": 0.9})
+        vrm_input = map_mediapipe_to_vrm({"jawOpen": 0.6, "eyeBlinkLeft": 0.9, "eyeBlinkRight": 0.9})
         pose_input = {"pitch": 0.12, "yaw": -0.25, "roll": 0.05}
-        packet = format_motion_packet(vrc_input, pose_input)
+        packet = format_motion_packet(vrc=vrc_input, rotation=pose_input, vrm=vrm_input)
 
+        self.assertIn("vrm", packet)
         self.assertIn("vrc", packet)
         self.assertIn("rotation", packet)
+        self.assertEqual(packet["vrm"]["blink"], vrm_input["blink"])
+        self.assertEqual(packet["vrm"]["a"], vrm_input["a"])
         self.assertEqual(packet["vrc"]["vrc_blink"], vrc_input["vrc_blink"])
         self.assertEqual(packet["rotation"]["pitch"], 0.12)
         self.assertEqual(packet["rotation"]["yaw"], -0.25)
@@ -23,13 +27,16 @@ class TestVRMRenderer(unittest.TestCase):
         # Ensure valid JSON string serialization
         json_str = json.dumps(packet)
         self.assertIsInstance(json_str, str)
+        self.assertIn("blink", json_str)
         self.assertIn("vrc_v_aa", json_str)
         self.assertIn("pitch", json_str)
 
     def test_format_motion_packet_empty(self):
         packet = format_motion_packet(None, None)
+        self.assertIn("vrm", packet)
         self.assertIn("vrc", packet)
         self.assertIn("rotation", packet)
+        self.assertEqual(packet["vrm"]["neutral"], 1.0)
         self.assertEqual(packet["rotation"], {"pitch": 0.0, "yaw": 0.0, "roll": 0.0})
 
 

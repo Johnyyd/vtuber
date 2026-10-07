@@ -65,6 +65,32 @@ class TestLandmarkMapping(unittest.TestCase):
         pose = compute_head_pose({})
         self.assertEqual(pose, {"pitch": 0.0, "yaw": 0.0, "roll": 0.0})
 
+    def test_vrm_mapping_presets(self):
+        try:
+            from landmark_mapping import map_mediapipe_to_vrm, VRM_BLENDSHAPES
+        except ImportError:
+            from src.landmark_mapping import map_mediapipe_to_vrm, VRM_BLENDSHAPES
+
+        mp_input = {
+            "eyeBlinkLeft": 0.8,
+            "eyeBlinkRight": 0.8,
+            "jawOpen": 0.7,
+            "mouthSmileLeft": 0.85,
+            "mouthSmileRight": 0.85,
+        }
+        vrm = map_mediapipe_to_vrm(mp_input)
+        self.assertIn("a", vrm)
+        self.assertIn("blink", vrm)
+        self.assertIn("blink_l", vrm)
+        self.assertIn("blink_r", vrm)
+        self.assertIn("joy", vrm)
+        self.assertGreater(vrm["a"], 0.5)
+        self.assertGreater(vrm["blink"], 0.7)
+        self.assertGreater(vrm["joy"], 0.6)
+        for name in VRM_BLENDSHAPES:
+            self.assertIn(name, vrm)
+            self.assertTrue(0.0 <= vrm[name] <= 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()

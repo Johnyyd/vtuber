@@ -298,8 +298,8 @@
       }
     }
 
-    // LERP interpolate head rotation
-    const lerpRot = 0.22;
+    // LERP interpolate head rotation with snappy, responsive factor
+    const lerpRot = 0.35;
     currentMotion.rotation.pitch +=
       (targetMotion.rotation.pitch - currentMotion.rotation.pitch) * lerpRot;
     currentMotion.rotation.yaw +=
@@ -308,10 +308,12 @@
       (targetMotion.rotation.roll - currentMotion.rotation.roll) * lerpRot;
 
     // Apply head and neck bone rotations (Euler: X=pitch, Y=yaw, Z=roll)
-    // Pitch is inverted so looking up tilts head backward, bowing down tilts head forward
+    // Pitch: inverted so looking up tilts head backward
+    // Yaw: follows natural user gaze
+    // Roll: corrected so tilting head left/right tilts in user direction (mirror parity)
     const p = -currentMotion.rotation.pitch;
     const y = currentMotion.rotation.yaw;
-    const r = -currentMotion.rotation.roll;
+    const r = currentMotion.rotation.roll;
 
     if (neckBone) {
       neckBone.rotation.set(p * 0.3, y * 0.3, r * 0.3);
@@ -327,7 +329,7 @@
     // 1. Primary: Drive standard VRM blendShapeProxy if currentVrm has it
     if (currentVrm && currentVrm.blendShapeProxy) {
       for (const [key, targetVal] of Object.entries(targetMotion.vrm)) {
-        const lerpFactor = (key === "blink" || key === "blink_l" || key === "blink_r") ? 0.60 : 0.35;
+        const lerpFactor = (key === "blink" || key === "blink_l" || key === "blink_r") ? 0.85 : 0.40;
         currentMotion.vrm[key] +=
           (targetVal - currentMotion.vrm[key]) * lerpFactor;
 

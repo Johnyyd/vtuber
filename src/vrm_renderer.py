@@ -28,11 +28,17 @@ from PyQt6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import QWebEngineSettings
 
-from face_detector import create_face_landmarker, parse_landmarks, parse_blendshapes
+from face_detector import (
+    create_face_landmarker,
+    parse_landmarks,
+    parse_blendshapes,
+    parse_transformation_matrix,
+)
 from landmark_mapping import (
     map_mediapipe_to_vrc,
     map_mediapipe_to_vrm,
     compute_head_pose,
+    OneEuroFilter,
     VRC_TARGETS,
     VRM_BLENDSHAPES,
 )
@@ -72,6 +78,10 @@ class TrackingWorker(QThread):
         super().__init__()
         self.camera_id = camera_id
         self._running = True
+        # OneEuroFilters for smooth, responsive head rotation without micro-jitter
+        self.filter_pitch = OneEuroFilter(min_cutoff=0.8, beta=0.015)
+        self.filter_yaw = OneEuroFilter(min_cutoff=0.8, beta=0.015)
+        self.filter_roll = OneEuroFilter(min_cutoff=0.8, beta=0.015)
 
     def run(self):
         self.status_changed.emit("Initializing webcam & FaceLandmarker...")
@@ -81,7 +91,11 @@ class TrackingWorker(QThread):
             self.status_changed.emit(f"Error: Unable to open camera {self.camera_id}")
             return
 
-        # Optimize camera latency
+        # Optimize camera latency and frame streaming
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        cap.set(cv2.CAP_PROP_FPS, 30)
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         try:
@@ -92,7 +106,7 @@ class TrackingWorker(QThread):
             return
 
         self.status_changed.emit("Camera tracking active")
-        timestamp_ms = 0
+        last_timestamp_ms = 0
 
         while self._running:
             ret, frame = cap.read()
@@ -104,20 +118,42 @@ class TrackingWorker(QThread):
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
 
-            timestamp_ms += 33  # ~30 FPS step
-            result = landmarker.detect_for_video(mp_image, timestamp_ms)
+            # Use monotonically increasing wall-clock timestamps for accurate MediaPipe video filters
+            now_ms = int(time.time() * 1000)
+            if now_ms <= last_timestamp_ms:
+                now_ms = last_timestamp_ms + 1
+            last_timestamp_ms = now_ms
 
+            result = landmarker.detect_for_video(mp_image, now_ms)
+
+            matrix = parse_transformation_matrix(result)
             lm_list = parse_landmarks(result)
             mp_blendshapes = parse_blendshapes(result)
 
-            if mp_blendshapes and lm_list:
+            if mp_blendshapes and (lm_list or matrix is not None):
                 vrm_shapes = map_mediapipe_to_vrm(mp_blendshapes)
                 vrc = map_mediapipe_to_vrc(mp_blendshapes)
-                rotation = compute_head_pose(lm_list[0], frame_shape=(h, w))
-                packet = format_motion_packet(vrc=vrc, rotation=rotation, vrm=vrm_shapes)
+                raw_rotation = compute_head_pose(
+                    lm_list[0] if lm_list else {},
+                    frame_shape=(h, w),
+                    matrix=matrix,
+                )
+
+                # Filter rotation to eliminate jitter while keeping instant response
+                t_now = time.time()
+                filtered_rotation = {
+                    "pitch": self.filter_pitch.filter(raw_rotation["pitch"], t_now),
+                    "yaw": self.filter_yaw.filter(raw_rotation["yaw"], t_now),
+                    "roll": self.filter_roll.filter(raw_rotation["roll"], t_now),
+                }
+
+                packet = format_motion_packet(vrc=vrc, rotation=filtered_rotation, vrm=vrm_shapes)
                 self.motion_ready.emit(packet)
             else:
-                # No face detected in frame -> send decay signal
+                # No face detected in frame -> send decay signal and reset filters
+                self.filter_pitch.reset()
+                self.filter_yaw.reset()
+                self.filter_roll.reset()
                 packet = format_motion_packet(None, None, None)
                 self.motion_ready.emit(packet)
 

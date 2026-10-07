@@ -91,6 +91,43 @@ class TestLandmarkMapping(unittest.TestCase):
             self.assertIn(name, vrm)
             self.assertTrue(0.0 <= vrm[name] <= 1.0)
 
+    def test_one_euro_filter_smoothing(self):
+        try:
+            from landmark_mapping import OneEuroFilter
+        except ImportError:
+            from src.landmark_mapping import OneEuroFilter
+
+        f = OneEuroFilter(min_cutoff=0.8, beta=0.015)
+        # Small fluctuations around 0.1 should be smoothed
+        v1 = f.filter(0.10, 0.0)
+        v2 = f.filter(0.12, 0.033)
+        self.assertEqual(v1, 0.10)
+        self.assertLess(v2, 0.12)  # Damped
+        self.assertGreater(v2, 0.10)
+
+    def test_matrix_head_pose_computation(self):
+        try:
+            from landmark_mapping import compute_head_pose_from_matrix
+        except ImportError:
+            from src.landmark_mapping import compute_head_pose_from_matrix
+
+        # Identity 4x4 matrix -> neutral rotation
+        mat = np.eye(4, dtype=np.float64)
+        pose = compute_head_pose_from_matrix(mat)
+        self.assertAlmostEqual(pose["pitch"], 0.0, places=4)
+        self.assertAlmostEqual(pose["yaw"], 0.0, places=4)
+        self.assertAlmostEqual(pose["roll"], 0.0, places=4)
+
+    def test_blink_deadzone_and_snap(self):
+        try:
+            from landmark_mapping import _calibrate_blink
+        except ImportError:
+            from src.landmark_mapping import _calibrate_blink
+
+        self.assertEqual(_calibrate_blink(0.05), 0.0)  # Resting eye open
+        self.assertEqual(_calibrate_blink(0.70), 1.0)  # Complete closure snap
+        self.assertGreater(_calibrate_blink(0.35), 0.3)
+
 
 if __name__ == "__main__":
     unittest.main()

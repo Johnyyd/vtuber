@@ -37,6 +37,7 @@ def create_face_landmarker():
         running_mode=vision.RunningMode.VIDEO,
         num_faces=1,
         output_face_blendshapes=True,
+        output_facial_transformation_matrixes=True,
     )
     return vision.FaceLandmarker.create_from_options(options)
 
@@ -57,3 +58,13 @@ def parse_blendshapes(result) -> dict:
         for category in result.face_blendshapes[0]:
             out[category.category_name] = category.score
     return out
+
+
+def parse_transformation_matrix(result):
+    """Extract first 4x4 facial transformation matrix if available."""
+    if (
+        hasattr(result, "facial_transformation_matrixes")
+        and result.facial_transformation_matrixes
+    ):
+        return result.facial_transformation_matrixes[0]
+    return None

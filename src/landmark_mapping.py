@@ -138,6 +138,63 @@ def map_mediapipe_to_vrc(mp_blendshapes: Dict[str, float]) -> Dict[str, float]:
     return vrc
 
 
+def _calibrate_blink(raw: float, deadzone: float = 0.10, snap_thresh: float = 0.60) -> float:
+    """
+    Calibrate raw MediaPipe blink value:
+    - Below deadzone: 0.0 (prevents sleepy eyes when open)
+    - Above snap_thresh: 1.0 (snappy, complete blink closure)
+    - In between: smooth Hermite curve
+    """
+    if raw <= deadzone:
+        return 0.0
+    if raw >= snap_thresh:
+        return 1.0
+    t = (raw - deadzone) / (snap_thresh - deadzone)
+    return float(t * t * (3.0 - 2.0 * t))
+
+
+class OneEuroFilter:
+    """
+    1€ Filter: Adaptive low-pass filter minimizing jitter at low speeds
+    while eliminating latency during fast movements.
+    """
+    def __init__(self, min_cutoff: float = 0.8, beta: float = 0.015, d_cutoff: float = 1.0):
+        self.min_cutoff = float(min_cutoff)
+        self.beta = float(beta)
+        self.d_cutoff = float(d_cutoff)
+        self.x_prev = None
+        self.dx_prev = 0.0
+        self.t_prev = None
+
+    def _alpha(self, cutoff: float, dt: float) -> float:
+        tau = 1.0 / (2.0 * np.pi * cutoff)
+        return 1.0 / (1.0 + tau / dt)
+
+    def filter(self, x: float, t: float) -> float:
+        if self.t_prev is None:
+            self.t_prev = t
+            self.x_prev = x
+            return float(x)
+
+        dt = max(t - self.t_prev, 1e-4)
+        self.t_prev = t
+        dx = (x - self.x_prev) / dt
+        a_d = self._alpha(self.d_cutoff, dt)
+        dx_hat = a_d * dx + (1.0 - a_d) * self.dx_prev
+        self.dx_prev = dx_hat
+
+        cutoff = self.min_cutoff + self.beta * abs(dx_hat)
+        a = self._alpha(cutoff, dt)
+        x_hat = a * x + (1.0 - a) * self.x_prev
+        self.x_prev = x_hat
+        return float(x_hat)
+
+    def reset(self):
+        self.x_prev = None
+        self.dx_prev = 0.0
+        self.t_prev = None
+
+
 def map_mediapipe_to_vrm(mp_blendshapes: Dict[str, float]) -> Dict[str, float]:
     """Map MediaPipe ARKit blendshapes to standard VRM 0.x blendshape groups."""
     def g(name: str) -> float:
@@ -145,28 +202,48 @@ def map_mediapipe_to_vrm(mp_blendshapes: Dict[str, float]) -> Dict[str, float]:
 
     vrm = {name: 0.0 for name in VRM_BLENDSHAPES}
 
-    # Visemes
-    vrm["a"] = _clamp(g("jawOpen") * 1.2 - g("mouthClose") * 0.5)
-    vrm["i"] = _clamp((g("mouthStretchLeft") + g("mouthStretchRight")) * 0.6)
-    vrm["u"] = _clamp(g("mouthPucker") * 1.1)
-    vrm["e"] = _clamp(g("jawOpen") * 0.4 + (g("mouthStretchLeft") + g("mouthStretchRight")) * 0.3)
-    vrm["o"] = _clamp(g("mouthPucker") * 0.7 + g("jawOpen") * 0.5)
+    # 1. Mouth Deadzone & Visemes
+    jaw = g("jawOpen")
+    # Deadzone at 0.05 to keep mouth cleanly shut when resting/silent
+    jaw_active = max(0.0, (jaw - 0.05) / 0.95) if jaw > 0.05 else 0.0
+    mouth_close = g("mouthClose")
+    stretch = (g("mouthStretchLeft") + g("mouthStretchRight")) * 0.5
+    smile = (g("mouthSmileLeft") + g("mouthSmileRight")) * 0.5
+    pucker = g("mouthPucker")
+    funnel = g("mouthFunnel")
+
+    vrm["a"] = _clamp(jaw_active * 1.4 - mouth_close * 0.5)
+    vrm["i"] = _clamp(stretch * 0.7 + smile * 0.5 - jaw_active * 0.3)
+    vrm["u"] = _clamp(pucker * 1.2 - stretch * 0.4)
+    vrm["e"] = _clamp(jaw_active * 0.5 + stretch * 0.6 - pucker * 0.4)
+    vrm["o"] = _clamp(funnel * 0.8 + jaw_active * 0.6 + pucker * 0.3)
 
     vrm["neutral"] = _clamp(1.0 - (vrm["a"] + vrm["i"] + vrm["u"] + vrm["e"] + vrm["o"]))
 
-    # Blinks
-    blink_avg = (g("eyeBlinkLeft") + g("eyeBlinkRight")) * 0.5
-    vrm["blink"] = _clamp(blink_avg * 1.2)
-    vrm["blink_l"] = _clamp(g("eyeBlinkLeft") * 1.2)
-    vrm["blink_r"] = _clamp(g("eyeBlinkRight") * 1.2)
+    # 2. Eye Blinks & Independent Winking
+    raw_l = g("eyeBlinkLeft")
+    raw_r = g("eyeBlinkRight")
+    blink_l = _calibrate_blink(raw_l)
+    blink_r = _calibrate_blink(raw_r)
 
-    # Expressions
-    vrm["joy"] = _clamp((g("mouthSmileLeft") + g("mouthSmileRight")) * 0.8)
+    # If both eyes are closing together, activate simultaneous blink
+    if blink_l > 0.3 and blink_r > 0.3:
+        vrm["blink"] = max(blink_l, blink_r)
+        vrm["blink_l"] = blink_l
+        vrm["blink_r"] = blink_r
+    else:
+        # Independent winking
+        vrm["blink"] = 0.0
+        vrm["blink_l"] = blink_l
+        vrm["blink_r"] = blink_r
+
+    # 3. Facial Expressions
+    vrm["joy"] = _clamp(smile * 0.95)
     vrm["angry"] = _clamp((g("browDownLeft") + g("browDownRight")) * 0.8)
-    vrm["sorrow"] = _clamp(g("browInnerUp") * 0.8)
-    vrm["fun"] = _clamp((g("eyeWideLeft") + g("eyeWideRight")) * 0.5 + g("jawOpen") * 0.4)
+    vrm["sorrow"] = _clamp(g("browInnerUp") * 0.85)
+    vrm["fun"] = _clamp((g("eyeWideLeft") + g("eyeWideRight")) * 0.5 + jaw_active * 0.5)
 
-    # Gaze
+    # 4. Gaze Direction
     vrm["lookup"] = _clamp((g("eyeLookUpLeft") + g("eyeLookUpRight")) * 0.6)
     vrm["lookdown"] = _clamp((g("eyeLookDownLeft") + g("eyeLookDownRight")) * 0.6)
     vrm["lookleft"] = _clamp((g("eyeLookInRight") + g("eyeLookOutLeft")) * 0.6)
@@ -175,27 +252,50 @@ def map_mediapipe_to_vrm(mp_blendshapes: Dict[str, float]) -> Dict[str, float]:
     return vrm
 
 
-def compute_head_pose(landmarks: Dict[str, Tuple[float, float, float]], frame_shape: Tuple[int, int] = (480, 640)) -> Dict[str, float]:
+def compute_head_pose_from_matrix(matrix: np.ndarray) -> Dict[str, float]:
+    """
+    Extract 3D head rotation angles (Pitch, Yaw, Roll in radians) from MediaPipe 4x4 matrix.
+    Uses cv2.RQDecomp3x3 on the rotation submatrix to completely decouple head pose
+    from facial movements (e.g. mouth opening).
+    """
+    if matrix is None:
+        return {"pitch": 0.0, "yaw": 0.0, "roll": 0.0}
+
+    mat = np.array(matrix, dtype=np.float64)
+    if mat.shape != (4, 4):
+        return {"pitch": 0.0, "yaw": 0.0, "roll": 0.0}
+
+    R = mat[:3, :3]
+    angles, _, _, _, _, _ = cv2.RQDecomp3x3(R)
+    # RQDecomp3x3 returns angles in degrees: [pitch, yaw, roll]
+    pitch = float(np.radians(angles[0]))
+    yaw = float(np.radians(angles[1]))
+    roll = float(np.radians(angles[2]))
+
+    return {
+        "pitch": float(np.clip(pitch, -0.6, 0.6)),
+        "yaw": float(np.clip(yaw, -0.8, 0.8)),
+        "roll": float(np.clip(roll, -0.6, 0.6)),
+    }
+
+
+def compute_head_pose(
+    landmarks: Dict[str, Tuple[float, float, float]],
+    frame_shape: Tuple[int, int] = (480, 640),
+    matrix: Optional[np.ndarray] = None,
+) -> Dict[str, float]:
     """
     Compute 3D head rotation angles (Pitch, Yaw, Roll in radians).
-    Uses robust landmark vector geometry:
-    - Roll: angle of the eye baseline relative to horizontal
-    - Yaw: horizontal offset of nose from eye midpoint, normalized by eye distance
-    - Pitch: ratio of nose-to-chin vs eye-to-nose vertical distance
-
-    Args:
-        landmarks: Dict of landmark name ("lm{i}") -> (x, y, z) normalized coords.
-        frame_shape: (height, width) of the camera frame.
-
-    Returns:
-        Dict: {"pitch": float, "yaw": float, "roll": float} in radians.
+    Prefers 4x4 matrix decomposition; falls back to landmark geometry.
     """
-    required_keys = ["lm1", "lm152", "lm33", "lm263"]
+    if matrix is not None:
+        return compute_head_pose_from_matrix(matrix)
+
+    required_keys = ["lm1", "lm33", "lm263"]
     if not landmarks or not all(k in landmarks for k in required_keys):
         return {"pitch": 0.0, "yaw": 0.0, "roll": 0.0}
 
     nose = np.array(landmarks["lm1"][:2], dtype=np.float64)
-    chin = np.array(landmarks["lm152"][:2], dtype=np.float64)
     eye_l = np.array(landmarks["lm33"][:2], dtype=np.float64)   # User right eye (image left)
     eye_r = np.array(landmarks["lm263"][:2], dtype=np.float64)  # User left eye (image right)
 
@@ -213,26 +313,34 @@ def compute_head_pose(landmarks: Dict[str, Tuple[float, float, float]], frame_sh
     else:
         yaw = 0.0
 
-    # 3. Pitch: Ratio of nose-to-chin vs eye-to-nose vertical distance
-    vert_eye_to_nose = nose[1] - eye_center[1]
-    vert_nose_to_chin = chin[1] - nose[1]
-    if vert_eye_to_nose > 1e-6:
-        # Standard neutral facial ratio is ~1.2
-        ratio = vert_nose_to_chin / vert_eye_to_nose
-        pitch = float((1.2 - ratio) * 0.8)
+    # 3. Pitch: Use rigid forehead-to-bridge vertical distance if available,
+    # to prevent mouth opening from tilting the head
+    if "lm10" in landmarks and "lm168" in landmarks:
+        forehead = np.array(landmarks["lm10"][:2], dtype=np.float64)
+        bridge = np.array(landmarks["lm168"][:2], dtype=np.float64)
+        vert_forehead_to_bridge = bridge[1] - forehead[1]
+        vert_bridge_to_nose = nose[1] - bridge[1]
+        if vert_bridge_to_nose > 1e-6:
+            ratio = vert_forehead_to_bridge / vert_bridge_to_nose
+            pitch = float((2.2 - ratio) * 0.7)
+        else:
+            pitch = 0.0
+    elif "lm152" in landmarks:
+        chin = np.array(landmarks["lm152"][:2], dtype=np.float64)
+        vert_eye_to_nose = nose[1] - eye_center[1]
+        vert_nose_to_chin = chin[1] - nose[1]
+        if vert_eye_to_nose > 1e-6:
+            ratio = vert_nose_to_chin / vert_eye_to_nose
+            pitch = float((1.2 - ratio) * 0.8)
+        else:
+            pitch = 0.0
     else:
         pitch = 0.0
 
     return {
-        "pitch": float(np.clip(pitch, -0.5, 0.5)),
-        "yaw": float(np.clip(yaw, -0.7, 0.7)),
-        "roll": float(np.clip(roll, -0.4, 0.4)),
-    }
-
-    return {
-        "pitch": pitch,
-        "yaw": yaw,
-        "roll": roll,
+        "pitch": float(np.clip(pitch, -0.6, 0.6)),
+        "yaw": float(np.clip(yaw, -0.8, 0.8)),
+        "roll": float(np.clip(roll, -0.6, 0.6)),
     }
 
 

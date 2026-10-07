@@ -1,18 +1,38 @@
 """
-MediaPipe (ARKit) → VRM Blendshape Mapping
+MediaPipe FaceLandmarker -> VRM & VRChat Morph Target Mapping & Head Pose Computation
 
-Maps the 52 MediaPipe FaceLandmarker blendshapes to the 17 VRM blendshape groups:
-- neutral, a, i, u, e, o (visemes)
-- blink, blink_l, blink_r (eye blinks)
-- joy, angry, sorrow, fun (expressions)
-- lookup, lookdown, lookleft, lookright (eye gaze)
+Maps MediaPipe ARKit blendshapes to:
+1. 16 VRChat morph targets (matching character.vrm's Mesh_InteriorMouth2)
+2. 17 VRM standard preset blendshapes (for universal VRM compatibility)
+3. 3D Head Pose (Pitch, Yaw, Roll) via cv2.solvePnP
 """
 
+import cv2
 import numpy as np
-from typing import Dict
+from typing import Dict, Tuple, Optional
 
 
-# VRM blendshape preset names (from your character.vrm)
+# 16 Morph Targets present in character.vrm Mesh_InteriorMouth2
+VRC_TARGETS = [
+    "vrc_blink",
+    "vrc_v_aa",
+    "vrc_v_oh",
+    "vrc_v_ou",
+    "vrc_v_ee",
+    "vrc_v_ih",
+    "vrc_v_sil",
+    "vrc_v_ch",
+    "vrc_v_dd",
+    "vrc_v_ff",
+    "vrc_v_kk",
+    "vrc_v_nn",
+    "vrc_v_pp",
+    "vrc_v_rr",
+    "vrc_v_ss",
+    "vrc_v_th",
+]
+
+# VRM 0.x standard blendshape preset names
 VRM_BLENDSHAPES = [
     "neutral",
     "a",
@@ -36,207 +56,190 @@ VRM_BLENDSHAPES = [
 
 def _clamp(value: float, min_val: float = 0.0, max_val: float = 1.0) -> float:
     """Clamp value to [min_val, max_val]."""
-    return max(min_val, min(max_val, value))
+    return max(min_val, min(max_val, float(value)))
 
 
-def map_mediapipe_to_vrm(mp_blendshapes: Dict[str, float]) -> Dict[str, float]:
+def map_mediapipe_to_vrc(mp_blendshapes: Dict[str, float]) -> Dict[str, float]:
     """
-    Map MediaPipe ARKit blendshapes to VRM blendshape groups.
+    Map MediaPipe ARKit blendshapes to the 16 VRChat morph targets of character.vrm.
 
     Args:
         mp_blendshapes: Dict of MediaPipe blendshape name -> score (0-1)
-        Note: MediaPipe uses camelCase ARKit names (e.g., jawOpen, mouthSmileLeft)
 
     Returns:
-        Dict of VRM blendshape preset name -> weight (0-1)
+        Dict of VRC morph target name -> weight (0-1)
     """
-    # Helper to get value with default 0
+    def g(name: str) -> float:
+        return mp_blendshapes.get(name, 0.0)
+
+    vrc: Dict[str, float] = {name: 0.0 for name in VRC_TARGETS}
+
+    # 1. Eye Blink (both eyes)
+    blink_avg = (g("eyeBlinkLeft") + g("eyeBlinkRight")) * 0.5
+    vrc["vrc_blink"] = _clamp(blink_avg * 1.2)
+
+    # 2. Visemes
+    # "aa" - wide open mouth (jawOpen)
+    vrc["vrc_v_aa"] = _clamp(
+        g("jawOpen") * 1.2
+        + g("mouthLowerDownLeft") * 0.3
+        + g("mouthLowerDownRight") * 0.3
+        - g("mouthClose") * 0.5
+    )
+
+    # "ee" - wide horizontal mouth stretch / smile
+    vrc["vrc_v_ee"] = _clamp(
+        (g("mouthStretchLeft") + g("mouthStretchRight")) * 0.5
+        + (g("mouthSmileLeft") + g("mouthSmileRight")) * 0.4
+        - g("mouthPucker") * 0.4
+    )
+
+    # "ih" - teeth together, slight smile/press
+    vrc["vrc_v_ih"] = _clamp(
+        (g("mouthPressLeft") + g("mouthPressRight")) * 0.5
+        + (g("mouthSmileLeft") + g("mouthSmileRight")) * 0.3
+    )
+
+    # "oh" - rounded, open mouth
+    vrc["vrc_v_oh"] = _clamp(
+        g("jawOpen") * 0.6
+        + g("mouthPucker") * 0.7
+        + g("mouthFunnel") * 0.3
+    )
+
+    # "ou" - puckered / protruded lips
+    vrc["vrc_v_ou"] = _clamp(
+        g("mouthPucker") * 1.1
+        + g("mouthFunnel") * 0.7
+        - (g("mouthStretchLeft") + g("mouthStretchRight")) * 0.3
+    )
+
+    # Consonants / intermediate shapes
+    vrc["vrc_v_ch"] = _clamp((g("mouthPressLeft") + g("mouthPressRight")) * 0.3)
+    vrc["vrc_v_dd"] = _clamp(g("mouthDimpleLeft") * 0.3 + g("mouthDimpleRight") * 0.3)
+    vrc["vrc_v_ff"] = _clamp(g("mouthRollLower") * 0.6)
+    vrc["vrc_v_kk"] = _clamp(g("mouthUpperUpLeft") * 0.3 + g("mouthUpperUpRight") * 0.3)
+    vrc["vrc_v_nn"] = _clamp(g("mouthClose") * 0.4)
+    vrc["vrc_v_pp"] = _clamp(g("mouthPucker") * 0.5 + g("mouthClose") * 0.4)
+    vrc["vrc_v_rr"] = _clamp(g("mouthRollUpper") * 0.4 + g("mouthRollLower") * 0.4)
+    vrc["vrc_v_ss"] = _clamp((g("mouthStretchLeft") + g("mouthStretchRight")) * 0.3)
+    vrc["vrc_v_th"] = _clamp(g("mouthFunnel") * 0.4)
+
+    # "sil" - silence / neutral rest
+    active_mouth = (
+        vrc["vrc_v_aa"]
+        + vrc["vrc_v_ee"]
+        + vrc["vrc_v_ih"]
+        + vrc["vrc_v_oh"]
+        + vrc["vrc_v_ou"]
+    )
+    vrc["vrc_v_sil"] = _clamp(1.0 - active_mouth + g("mouthClose") * 0.3)
+
+    return vrc
+
+
+def map_mediapipe_to_vrm(mp_blendshapes: Dict[str, float]) -> Dict[str, float]:
+    """Map MediaPipe ARKit blendshapes to standard VRM 0.x blendshape groups."""
     def g(name: str) -> float:
         return mp_blendshapes.get(name, 0.0)
 
     vrm = {name: 0.0 for name in VRM_BLENDSHAPES}
 
-    # ==================== VISEMES (mouth shapes) ====================
-    # VRM uses Japanese vowel system: a, i, u, e, o
+    # Visemes
+    vrm["a"] = _clamp(g("jawOpen") * 1.2 - g("mouthClose") * 0.5)
+    vrm["i"] = _clamp((g("mouthStretchLeft") + g("mouthStretchRight")) * 0.6)
+    vrm["u"] = _clamp(g("mouthPucker") * 1.1)
+    vrm["e"] = _clamp(g("jawOpen") * 0.4 + (g("mouthStretchLeft") + g("mouthStretchRight")) * 0.3)
+    vrm["o"] = _clamp(g("mouthPucker") * 0.7 + g("jawOpen") * 0.5)
 
-    # "a" - mouth wide open, jaw down
-    vrm["a"] = _clamp(
-        g("jawOpen") * 1.2
-        + g("mouthLowerDownLeft") * 0.3
-        + g("mouthLowerDownRight") * 0.3
-        - g("mouthClose") * 0.5
-        - g("mouthPressLeft") * 0.2
-        - g("mouthPressRight") * 0.2
-    )
+    vrm["neutral"] = _clamp(1.0 - (vrm["a"] + vrm["i"] + vrm["u"] + vrm["e"] + vrm["o"]))
 
-    # "i" - mouth stretched wide horizontally (smile-like)
-    vrm["i"] = _clamp(
-        g("mouthStretchLeft") * 1.0
-        + g("mouthStretchRight") * 1.0
-        + g("mouthSmileLeft") * 0.5
-        + g("mouthSmileRight") * 0.5
-        - g("mouthPucker") * 0.5
-        - g("mouthFunnel") * 0.5
-    )
-
-    # "u" - mouth puckered/protruded (O shape)
-    vrm["u"] = _clamp(
-        g("mouthPucker") * 1.2
-        + g("mouthFunnel") * 0.8
-        + g("mouthRollLower") * 0.3
-        + g("mouthRollUpper") * 0.3
-        - g("mouthStretchLeft") * 0.3
-        - g("mouthStretchRight") * 0.3
-    )
-
-    # "e" - mouth slightly open, corners back (like "eh")
-    vrm["e"] = _clamp(
-        g("jawOpen") * 0.5
-        + g("mouthStretchLeft") * 0.4
-        + g("mouthStretchRight") * 0.4
-        + g("mouthLowerDownLeft") * 0.2
-        + g("mouthLowerDownRight") * 0.2
-        - g("mouthPucker") * 0.4
-    )
-
-    # "o" - mouth rounded, moderately open
-    vrm["o"] = _clamp(
-        g("mouthPucker") * 0.7
-        + g("jawOpen") * 0.5
-        + g("mouthRollLower") * 0.3
-        + g("mouthRollUpper") * 0.3
-        - g("mouthStretchLeft") * 0.3
-        - g("mouthStretchRight") * 0.3
-    )
-
-    # Neutral - base face, influenced by mouth being closed
-    vrm["neutral"] = _clamp(
-        1.0
-        - vrm["a"]
-        - vrm["i"]
-        - vrm["u"]
-        - vrm["e"]
-        - vrm["o"]
-        + g("mouthClose") * 0.3
-    )
-
-    # ==================== EYE BLINKS ====================
-    # Average blink for both eyes
+    # Blinks
     blink_avg = (g("eyeBlinkLeft") + g("eyeBlinkRight")) * 0.5
     vrm["blink"] = _clamp(blink_avg * 1.2)
-
-    # Individual eye blinks
     vrm["blink_l"] = _clamp(g("eyeBlinkLeft") * 1.2)
     vrm["blink_r"] = _clamp(g("eyeBlinkRight") * 1.2)
 
-    # ==================== EXPRESSIONS ====================
+    # Expressions
+    vrm["joy"] = _clamp((g("mouthSmileLeft") + g("mouthSmileRight")) * 0.8)
+    vrm["angry"] = _clamp((g("browDownLeft") + g("browDownRight")) * 0.8)
+    vrm["sorrow"] = _clamp(g("browInnerUp") * 0.8)
+    vrm["fun"] = _clamp((g("eyeWideLeft") + g("eyeWideRight")) * 0.5 + g("jawOpen") * 0.4)
 
-    # Joy/Happy - smile + cheek raise + eye squint
-    vrm["joy"] = _clamp(
-        g("mouthSmileLeft") * 1.0
-        + g("mouthSmileRight") * 1.0
-        + g("cheekSquintLeft") * 0.5
-        + g("cheekSquintRight") * 0.5
-        + g("eyeSquintLeft") * 0.3
-        + g("eyeSquintRight") * 0.3
-        - g("browDownLeft") * 0.3
-        - g("browDownRight") * 0.3
-    )
-
-    # Angry - brow down + eye squint + mouth press/frown
-    vrm["angry"] = _clamp(
-        g("browDownLeft") * 1.0
-        + g("browDownRight") * 1.0
-        + g("eyeSquintLeft") * 0.6
-        + g("eyeSquintRight") * 0.6
-        + g("mouthPressLeft") * 0.4
-        + g("mouthPressRight") * 0.4
-        + g("mouthPressLeft") * 0.5
-        + g("mouthPressRight") * 0.5
-        - g("browInnerUp") * 0.4
-    )
-
-    # Sorrow/Sad - brow inner up + mouth frown + eye wide down
-    vrm["sorrow"] = _clamp(
-        g("browInnerUp") * 1.0
-        + g("mouthPressLeft") * 0.7
-        + g("mouthPressRight") * 0.7
-        + g("eyeLookDownLeft") * 0.3
-        + g("eyeLookDownRight") * 0.3
-        - g("mouthSmileLeft") * 0.3
-        - g("mouthSmileRight") * 0.3
-    )
-
-    # Fun/Surprise - brow up + eye wide + jaw open
-    vrm["fun"] = _clamp(
-        g("browOuterUpLeft") * 0.7
-        + g("browOuterUpRight") * 0.7
-        + g("browInnerUp") * 0.5
-        + g("eyeWideLeft") * 0.8
-        + g("eyeWideRight") * 0.8
-        + g("jawOpen") * 0.6
-        - g("eyeSquintLeft") * 0.3
-        - g("eyeSquintRight") * 0.3
-    )
-
-    # ==================== EYE GAZE ====================
-
-    # Look Up - eyes looking up
-    vrm["lookup"] = _clamp(
-        (g("eyeLookUpLeft") + g("eyeLookUpRight")) * 0.5 * 1.2
-    )
-
-    # Look Down - eyes looking down
-    vrm["lookdown"] = _clamp(
-        (g("eyeLookDownLeft") + g("eyeLookDownRight")) * 0.5 * 1.2
-    )
-
-    # Look Left - eyes looking left
-    vrm["lookleft"] = _clamp(
-        (g("eyeLookInRight") + g("eyeLookOutLeft")) * 0.5 * 1.2
-    )
-
-    # Look Right - eyes looking right
-    vrm["lookright"] = _clamp(
-        (g("eyeLookInLeft") + g("eyeLookOutRight")) * 0.5 * 1.2
-    )
+    # Gaze
+    vrm["lookup"] = _clamp((g("eyeLookUpLeft") + g("eyeLookUpRight")) * 0.6)
+    vrm["lookdown"] = _clamp((g("eyeLookDownLeft") + g("eyeLookDownRight")) * 0.6)
+    vrm["lookleft"] = _clamp((g("eyeLookInRight") + g("eyeLookOutLeft")) * 0.6)
+    vrm["lookright"] = _clamp((g("eyeLookInLeft") + g("eyeLookOutRight")) * 0.6)
 
     return vrm
 
 
-def map_landmarks_to_blendshapes(landmarks: Dict[str, tuple]) -> Dict[str, float]:
+def compute_head_pose(landmarks: Dict[str, Tuple[float, float, float]], frame_shape: Tuple[int, int] = (480, 640)) -> Dict[str, float]:
     """
-    Legacy function - kept for backward compatibility.
-    Maps raw landmarks to a simple mouth_open blendshape.
-    """
-    def _distance(p1, p2):
-        return np.linalg.norm(np.array(p1) - np.array(p2))
+    Compute 3D head rotation angles (Pitch, Yaw, Roll in radians).
+    Uses robust landmark vector geometry:
+    - Roll: angle of the eye baseline relative to horizontal
+    - Yaw: horizontal offset of nose from eye midpoint, normalized by eye distance
+    - Pitch: ratio of nose-to-chin vs eye-to-nose vertical distance
 
-    # Use mouth landmarks (13=upper lip, 14=lower lip)
+    Args:
+        landmarks: Dict of landmark name ("lm{i}") -> (x, y, z) normalized coords.
+        frame_shape: (height, width) of the camera frame.
+
+    Returns:
+        Dict: {"pitch": float, "yaw": float, "roll": float} in radians.
+    """
+    required_keys = ["lm1", "lm152", "lm33", "lm263"]
+    if not landmarks or not all(k in landmarks for k in required_keys):
+        return {"pitch": 0.0, "yaw": 0.0, "roll": 0.0}
+
+    nose = np.array(landmarks["lm1"][:2], dtype=np.float64)
+    chin = np.array(landmarks["lm152"][:2], dtype=np.float64)
+    eye_l = np.array(landmarks["lm33"][:2], dtype=np.float64)   # User right eye (image left)
+    eye_r = np.array(landmarks["lm263"][:2], dtype=np.float64)  # User left eye (image right)
+
+    # 1. Roll: Angle of the eye line relative to horizontal
+    dx = eye_r[0] - eye_l[0]
+    dy = eye_r[1] - eye_l[1]
+    roll = float(np.arctan2(dy, dx))
+
+    # 2. Yaw: Offset of nose from eye midpoint, normalized by eye distance
+    eye_center = (eye_l + eye_r) * 0.5
+    eye_dist = float(np.linalg.norm(eye_r - eye_l))
+    if eye_dist > 1e-6:
+        yaw_offset = (nose[0] - eye_center[0]) / eye_dist
+        yaw = float(yaw_offset * 1.5)
+    else:
+        yaw = 0.0
+
+    # 3. Pitch: Ratio of nose-to-chin vs eye-to-nose vertical distance
+    vert_eye_to_nose = nose[1] - eye_center[1]
+    vert_nose_to_chin = chin[1] - nose[1]
+    if vert_eye_to_nose > 1e-6:
+        # Standard neutral facial ratio is ~1.2
+        ratio = vert_nose_to_chin / vert_eye_to_nose
+        pitch = float((1.2 - ratio) * 0.8)
+    else:
+        pitch = 0.0
+
+    return {
+        "pitch": float(np.clip(pitch, -0.5, 0.5)),
+        "yaw": float(np.clip(yaw, -0.7, 0.7)),
+        "roll": float(np.clip(roll, -0.4, 0.4)),
+    }
+
+    return {
+        "pitch": pitch,
+        "yaw": yaw,
+        "roll": roll,
+    }
+
+
+def map_landmarks_to_blendshapes(landmarks: Dict[str, tuple]) -> Dict[str, float]:
+    """Legacy function - kept for backward compatibility."""
     lm13 = landmarks.get("lm13", (0.5, 0.5, 0))
     lm14 = landmarks.get("lm14", (0.5, 0.5, 0))
-    mouth_open = _distance(lm13, lm14)
-    mouth_open = _clamp(mouth_open * 2.5)
+    dist = float(np.linalg.norm(np.array(lm13) - np.array(lm14)))
+    mouth_open = _clamp(dist * 2.5)
     return {"mouth_open": mouth_open}
-
-
-# For debugging - print the mapping
-if __name__ == "__main__":
-    # Test with sample MediaPipe blendshapes
-    # Note: MediaPipe uses camelCase ARKit names
-    test_mp = {
-        "jawOpen": 0.8,
-        "mouthSmileLeft": 0.7,
-        "mouthSmileRight": 0.7,
-        "eyeBlinkLeft": 0.9,
-        "eyeBlinkRight": 0.9,
-        "browDownLeft": 0.6,
-        "browDownRight": 0.6,
-        "eyeLookUpLeft": 0.5,
-        "eyeLookUpRight": 0.5,
-    }
-    vrm_result = map_mediapipe_to_vrm(test_mp)
-    print("VRM Blendshapes:")
-    for name in VRM_BLENDSHAPES:
-        if vrm_result[name] > 0.01:
-            print(f"  {name}: {vrm_result[name]:.3f}")

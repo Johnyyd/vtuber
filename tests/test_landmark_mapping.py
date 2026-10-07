@@ -1,0 +1,67 @@
+import unittest
+import numpy as np
+from src.landmark_mapping import map_mediapipe_to_vrc, compute_head_pose, VRC_TARGETS
+
+
+class TestLandmarkMapping(unittest.TestCase):
+    def test_vrc_targets_contains_all_16_targets(self):
+        expected_targets = {
+            "vrc_blink", "vrc_v_aa", "vrc_v_oh", "vrc_v_ou", "vrc_v_ee", "vrc_v_ih", "vrc_v_sil",
+            "vrc_v_ch", "vrc_v_dd", "vrc_v_ff", "vrc_v_kk", "vrc_v_nn", "vrc_v_pp", "vrc_v_rr", "vrc_v_ss", "vrc_v_th"
+        }
+        self.assertEqual(set(VRC_TARGETS), expected_targets)
+
+    def test_vrc_mapping_blink_and_mouth(self):
+        mp_input = {
+            "eyeBlinkLeft": 0.85,
+            "eyeBlinkRight": 0.85,
+            "jawOpen": 0.75,
+            "mouthStretchLeft": 0.1,
+            "mouthStretchRight": 0.1,
+        }
+        vrc = map_mediapipe_to_vrc(mp_input)
+        self.assertEqual(len(vrc), 16)
+        self.assertIn("vrc_blink", vrc)
+        self.assertIn("vrc_v_aa", vrc)
+        self.assertIn("vrc_v_sil", vrc)
+        self.assertGreaterEqual(vrc["vrc_blink"], 0.7)
+        self.assertLessEqual(vrc["vrc_blink"], 1.0)
+        self.assertGreaterEqual(vrc["vrc_v_aa"], 0.6)
+        self.assertLessEqual(vrc["vrc_v_aa"], 1.0)
+        for name, val in vrc.items():
+            self.assertTrue(0.0 <= val <= 1.0, f"{name} was {val}, out of [0, 1]")
+
+    def test_vrc_mapping_smile_ee(self):
+        mp_input = {
+            "mouthStretchLeft": 0.8,
+            "mouthStretchRight": 0.8,
+            "mouthSmileLeft": 0.6,
+            "mouthSmileRight": 0.6,
+        }
+        vrc = map_mediapipe_to_vrc(mp_input)
+        self.assertGreaterEqual(vrc["vrc_v_ee"], 0.5)
+        self.assertLess(vrc["vrc_v_aa"], 0.2)
+
+    def test_compute_head_pose_neutral(self):
+        # Canonical face with natural proportions centered in frame
+        landmarks = {
+            "lm1": (0.5, 0.50, 0.0),    # nose tip
+            "lm152": (0.5, 0.62, 0.0),  # chin
+            "lm33": (0.40, 0.40, 0.0),  # left eye outer
+            "lm263": (0.60, 0.40, 0.0), # right eye outer
+            "lm61": (0.42, 0.56, 0.0),  # left mouth corner
+            "lm291": (0.58, 0.56, 0.0), # right mouth corner
+        }
+        pose = compute_head_pose(landmarks, frame_shape=(480, 640))
+        self.assertTrue("pitch" in pose and "yaw" in pose and "roll" in pose)
+        self.assertLess(abs(pose["pitch"]), 0.2)
+        self.assertLess(abs(pose["yaw"]), 0.2)
+        self.assertLess(abs(pose["roll"]), 0.2)
+
+    def test_compute_head_pose_empty(self):
+        pose = compute_head_pose({})
+        self.assertEqual(pose, {"pitch": 0.0, "yaw": 0.0, "roll": 0.0})
+
+
+if __name__ == "__main__":
+    unittest.main()

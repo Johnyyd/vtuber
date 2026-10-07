@@ -8,6 +8,8 @@
   let mouthMesh = null;
   let headBone = null;
   let neckBone = null;
+  let eyeLeftBone = null;
+  let eyeRightBone = null;
   const clock = new THREE.Clock();
 
   // Dictionary mapping target keys to mesh morph target indices
@@ -54,17 +56,24 @@
       yaw: 0.0,
       roll: 0.0,
     },
+    gaze: {
+      x: 0.0,
+      y: 0.0,
+    },
   };
 
   const currentMotion = {
     vrm: { ...targetMotion.vrm },
     vrc: { ...targetMotion.vrc },
     rotation: { ...targetMotion.rotation },
+    gaze: { ...targetMotion.gaze },
   };
 
   let lastMotionTimestamp = 0;
   let frameCount = 0;
   let lastFpsTime = performance.now();
+  let blinkHoldUntil = 0;
+  let activeBlinkType = null;
 
   function init() {
     const container = document.getElementById("canvas-container");
@@ -143,6 +152,7 @@
             vrmCreator(gltf)
               .then((vrm) => {
                 currentVrm = vrm;
+                window.currentVrm = vrm;
                 scene.add(vrm.scene);
                 setupModelReferences(vrm.scene);
                 hideLoading();
@@ -197,6 +207,12 @@
         neckBone = currentVrm.humanoid.getBoneNode("neck") ||
           (window.THREE_VRM && window.THREE_VRM.VRMSchema &&
             currentVrm.humanoid.getBoneNode(window.THREE_VRM.VRMSchema.HumanoidBoneName.Neck));
+        eyeLeftBone = currentVrm.humanoid.getBoneNode("leftEye") ||
+          (window.THREE_VRM && window.THREE_VRM.VRMSchema &&
+            currentVrm.humanoid.getBoneNode(window.THREE_VRM.VRMSchema.HumanoidBoneName.LeftEye));
+        eyeRightBone = currentVrm.humanoid.getBoneNode("rightEye") ||
+          (window.THREE_VRM && window.THREE_VRM.VRMSchema &&
+            currentVrm.humanoid.getBoneNode(window.THREE_VRM.VRMSchema.HumanoidBoneName.RightEye));
       } catch (e) {
         console.warn("[VTuber] Humanoid bone lookup notice:", e);
       }
@@ -228,9 +244,26 @@
       if (!neckBone && (obj.name === "J_Bip_C_Neck" || obj.name === "mixamorig:Neck" || obj.name.endsWith("Neck"))) {
         neckBone = obj;
       }
+      if (!eyeLeftBone && (obj.name.includes("Eye_L") || obj.name.includes("leftEye") || obj.name.includes("Eye.L"))) {
+        eyeLeftBone = obj;
+      }
+      if (!eyeRightBone && (obj.name.includes("Eye_R") || obj.name.includes("rightEye") || obj.name.includes("Eye.R"))) {
+        eyeRightBone = obj;
+      }
     });
 
-    console.log("[VTuber] Model setup complete. Head:", headBone ? headBone.name : "None", "Neck:", neckBone ? neckBone.name : "None");
+    // Extract exact morph target indices from VRM blendShapeProxy groups
+    if (currentVrm && currentVrm.blendShapeProxy && currentVrm.blendShapeProxy._blendShapeGroups) {
+      for (const [groupName, group] of Object.entries(currentVrm.blendShapeProxy._blendShapeGroups)) {
+        if (group && group._binds && group._binds.length > 0) {
+          const idx = group._binds[0].morphTargetIndex;
+          const kLower = groupName.toLowerCase();
+          morphIndexMap[kLower] = idx;
+        }
+      }
+    }
+
+    console.log("[VTuber] Model setup complete. Head:", headBone ? headBone.name : "None", "Neck:", neckBone ? neckBone.name : "None", "Eyes:", eyeLeftBone ? eyeLeftBone.name : "None", eyeRightBone ? eyeRightBone.name : "None");
   }
 
   function onWindowResize() {
@@ -243,10 +276,35 @@
   window.updateMotion = function (data) {
     if (!data) return;
 
+    const now = performance.now();
+
     if (data.vrm) {
+      // Immediate blink/wink trigger registration upon packet arrival
+      if (data.vrm.blink >= 0.28) {
+        if (now > blinkHoldUntil) {
+          blinkHoldUntil = now + 100; // Hold for at least 100ms
+          activeBlinkType = "blink";
+        }
+      } else if (data.vrm.blink_l >= 0.40) {
+        if (now > blinkHoldUntil) {
+          blinkHoldUntil = now + 100;
+          activeBlinkType = "blink_l";
+        }
+      } else if (data.vrm.blink_r >= 0.40) {
+        if (now > blinkHoldUntil) {
+          blinkHoldUntil = now + 100;
+          activeBlinkType = "blink_r";
+        }
+      }
+
       for (const [k, v] of Object.entries(data.vrm)) {
         if (targetMotion.vrm.hasOwnProperty(k)) {
-          targetMotion.vrm[k] = v;
+          // If in an active blink hold window, preserve eyelid closure
+          if (now < blinkHoldUntil && k === activeBlinkType) {
+            targetMotion.vrm[k] = 1.0;
+          } else {
+            targetMotion.vrm[k] = v;
+          }
         }
       }
     }
@@ -265,11 +323,19 @@
       targetMotion.rotation.roll = data.rotation.roll || 0.0;
     }
 
+    if (data.gaze) {
+      targetMotion.gaze.x = data.gaze.x || 0.0;
+      targetMotion.gaze.y = data.gaze.y || 0.0;
+    }
+
     lastMotionTimestamp = performance.now();
   };
 
   window.currentMotion = currentMotion;
   window.targetMotion = targetMotion;
+  window.threeRenderer = () => renderer;
+  window.threeScene = () => scene;
+  window.threeCamera = () => camera;
 
   function animate(now) {
     requestAnimationFrame(animate);
@@ -295,6 +361,8 @@
       targetMotion.rotation.pitch = 0.0;
       targetMotion.rotation.yaw = 0.0;
       targetMotion.rotation.roll = 0.0;
+      targetMotion.gaze.x = 0.0;
+      targetMotion.gaze.y = 0.0;
       for (const k of Object.keys(targetMotion.vrm)) {
         targetMotion.vrm[k] = k === "neutral" ? 1.0 : 0.0;
       }
@@ -327,18 +395,66 @@
       headBone.rotation.set(p * 0.7, y * 0.7, r * 0.7);
     }
 
+    // LERP interpolate iris gaze & rotate eyeball humanoid bones
+    const lerpGaze = 0.40;
+    currentMotion.gaze.x +=
+      (targetMotion.gaze.x - currentMotion.gaze.x) * lerpGaze;
+    currentMotion.gaze.y +=
+      (targetMotion.gaze.y - currentMotion.gaze.y) * lerpGaze;
+
+    // Rotate eyeball bones: max ~0.30 radians (~17 degrees)
+    // Eye pitch offset lowers the resting pupil position so it is comfortably centered
+    const maxEyeAngle = 0.30;
+    const eyePitchOffset = -0.07; // Downward pitch offset (~4 deg) to lower the pupil to natural height
+
+    // Check if blink hold window has completed
+    if (now >= blinkHoldUntil && activeBlinkType) {
+      targetMotion.vrm[activeBlinkType] = 0.0;
+      activeBlinkType = null;
+    }
+
+    // Guard: When eyelids are closing/blinking, lock gaze to neutral so pupils don't jump or twitch
+    const isBlinkClosing = (
+      currentMotion.vrm.blink > 0.15 ||
+      currentMotion.vrm.blink_l > 0.15 ||
+      currentMotion.vrm.blink_r > 0.15 ||
+      targetMotion.vrm.blink > 0.20 ||
+      now < blinkHoldUntil
+    );
+    const gazeY = isBlinkClosing ? 0.0 : currentMotion.gaze.y;
+    const gazeX = isBlinkClosing ? 0.0 : currentMotion.gaze.x;
+
+    const eyeRotX = -gazeY * maxEyeAngle + eyePitchOffset;
+    const eyeRotY = gazeX * maxEyeAngle;
+
+    if (eyeLeftBone) {
+      eyeLeftBone.rotation.set(eyeRotX, eyeRotY, 0.0);
+    }
+    if (eyeRightBone) {
+      eyeRightBone.rotation.set(eyeRotX, eyeRotY, 0.0);
+    }
+
     // LERP interpolate expressions and blendshapes
     let topExpression = "Neutral";
     let maxWeight = 0.0;
 
-    for (const [key, targetVal] of Object.entries(targetMotion.vrm)) {
+    for (const [key, rawTargetVal] of Object.entries(targetMotion.vrm)) {
       const isBlink = (key === "blink" || key === "blink_l" || key === "blink_r");
-      const lerpFactor = isBlink ? 0.85 : 0.45;
+
+      let effectiveTarget = rawTargetVal;
+      if (isBlink && now < blinkHoldUntil && activeBlinkType === key) {
+        effectiveTarget = Math.max(rawTargetVal, 1.0);
+      }
+
+      // Asymmetric LERP: snap close quickly (0.90), open smoothly (0.35)
+      const isClosing = effectiveTarget > currentMotion.vrm[key];
+      const lerpFactor = isBlink ? (isClosing ? 0.90 : 0.35) : 0.45;
+
       currentMotion.vrm[key] +=
-        (targetVal - currentMotion.vrm[key]) * lerpFactor;
+        (effectiveTarget - currentMotion.vrm[key]) * lerpFactor;
 
       // Clean snap to 0.0 when target is 0 and residual value is tiny, preventing eyelid droop
-      if (isBlink && targetVal === 0.0 && currentMotion.vrm[key] < 0.01) {
+      if (isBlink && effectiveTarget === 0.0 && currentMotion.vrm[key] < 0.02) {
         currentMotion.vrm[key] = 0.0;
       }
 
@@ -352,8 +468,13 @@
       }
     }
 
-    // Fallback direct morph target update only when VRM blendShapeProxy is not available
-    if ((!currentVrm || !currentVrm.blendShapeProxy) && morphMeshes.length > 0) {
+    // Immediately flush blendShapeProxy values to mesh morph targets
+    if (currentVrm && currentVrm.blendShapeProxy) {
+      currentVrm.blendShapeProxy.update();
+    }
+
+    // Direct synchronization to mesh morphTargetInfluences to guarantee instant GPU rendering
+    if (morphMeshes.length > 0) {
       for (const mesh of morphMeshes) {
         if (mesh.morphTargetInfluences) {
           for (const [k, v] of Object.entries(currentMotion.vrm)) {

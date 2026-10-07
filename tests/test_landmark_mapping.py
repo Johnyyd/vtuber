@@ -189,6 +189,113 @@ class TestLandmarkMapping(unittest.TestCase):
         self.assertEqual(vrm["blink_l"], 0.0)
         self.assertEqual(vrm["blink_r"], 0.0)
 
+    def test_compute_ear_open_and_closed(self):
+        try:
+            from landmark_mapping import compute_ear, ear_to_blink
+        except ImportError:
+            from src.landmark_mapping import compute_ear, ear_to_blink
+
+        # Wide open eyes: vertical distance large (~0.03), horizontal ~0.10 -> EAR ~ 0.30
+        open_lm = {
+            "lm33": (0.35, 0.40, 0.0), "lm133": (0.45, 0.40, 0.0),
+            "lm160": (0.40, 0.385, 0.0), "lm144": (0.40, 0.415, 0.0),
+            "lm158": (0.42, 0.385, 0.0), "lm153": (0.42, 0.415, 0.0),
+            "lm362": (0.55, 0.40, 0.0), "lm263": (0.65, 0.40, 0.0),
+            "lm385": (0.60, 0.385, 0.0), "lm380": (0.60, 0.415, 0.0),
+            "lm387": (0.62, 0.385, 0.0), "lm373": (0.62, 0.415, 0.0),
+        }
+        ear_l, ear_r = compute_ear(open_lm)
+        self.assertGreater(ear_l, 0.25)
+        self.assertGreater(ear_r, 0.25)
+        self.assertEqual(ear_to_blink(ear_l), 0.0)
+        self.assertEqual(ear_to_blink(ear_r), 0.0)
+
+        # Closed eyes: eyelids touching (vertical distance ~0.005) -> EAR ~ 0.05
+        closed_lm = {
+            "lm33": (0.35, 0.40, 0.0), "lm133": (0.45, 0.40, 0.0),
+            "lm160": (0.40, 0.398, 0.0), "lm144": (0.40, 0.402, 0.0),
+            "lm158": (0.42, 0.398, 0.0), "lm153": (0.42, 0.402, 0.0),
+            "lm362": (0.55, 0.40, 0.0), "lm263": (0.65, 0.40, 0.0),
+            "lm385": (0.60, 0.398, 0.0), "lm380": (0.60, 0.402, 0.0),
+            "lm387": (0.62, 0.398, 0.0), "lm373": (0.62, 0.402, 0.0),
+        }
+        ear_l_c, ear_r_c = compute_ear(closed_lm)
+        self.assertLess(ear_l_c, 0.16)
+        self.assertLess(ear_r_c, 0.16)
+        self.assertEqual(ear_to_blink(ear_l_c), 1.0)
+        self.assertEqual(ear_to_blink(ear_r_c), 1.0)
+
+    def test_compute_mar_open_and_closed(self):
+        try:
+            from landmark_mapping import compute_mar, mar_to_mouth_open
+        except ImportError:
+            from src.landmark_mapping import compute_mar, mar_to_mouth_open
+
+        # Closed mouth: lips touching (lm13 and lm14 vertical gap ~0.002)
+        closed_mouth = {
+            "lm13": (0.50, 0.600, 0.0), "lm14": (0.50, 0.602, 0.0),
+            "lm61": (0.45, 0.600, 0.0), "lm291": (0.55, 0.600, 0.0),
+        }
+        mar_closed = compute_mar(closed_mouth)
+        self.assertLess(mar_closed, 0.05)
+        self.assertEqual(mar_to_mouth_open(mar_closed), 0.0)
+
+        # Open mouth: wide vertical gap (lm13 and lm14 vertical gap ~0.05)
+        open_mouth = {
+            "lm13": (0.50, 0.580, 0.0), "lm14": (0.50, 0.630, 0.0),
+            "lm61": (0.45, 0.600, 0.0), "lm291": (0.55, 0.600, 0.0),
+        }
+        mar_open = compute_mar(open_mouth)
+        self.assertGreater(mar_open, 0.30)
+        self.assertGreater(mar_to_mouth_open(mar_open), 0.8)
+
+    def test_compute_iris_gaze_direction(self):
+        try:
+            from landmark_mapping import compute_iris_gaze
+        except ImportError:
+            from src.landmark_mapping import compute_iris_gaze
+
+        # Center iris: iris is mid-way between corners
+        center_iris = {
+            "lm33": (0.30, 0.40, 0.0), "lm133": (0.40, 0.40, 0.0),
+            "lm159": (0.35, 0.38, 0.0), "lm145": (0.35, 0.42, 0.0),
+            "lm468": (0.35, 0.40, 0.0),
+            "lm362": (0.50, 0.40, 0.0), "lm263": (0.60, 0.40, 0.0),
+            "lm386": (0.55, 0.38, 0.0), "lm374": (0.55, 0.42, 0.0),
+            "lm473": (0.55, 0.40, 0.0),
+        }
+        gaze = compute_iris_gaze(center_iris)
+        self.assertAlmostEqual(gaze["x"], 0.0, delta=0.1)
+        self.assertAlmostEqual(gaze["y"], 0.0, delta=0.1)
+
+    def test_biomechanical_fusion_with_landmarks(self):
+        try:
+            from landmark_mapping import map_mediapipe_to_vrm
+        except ImportError:
+            from src.landmark_mapping import map_mediapipe_to_vrm
+
+        # Eyes physically wide open (EAR ~ 0.30) even if ARKit classification is noisy (e.g. 0.20 droop)
+        lm_open = {
+            "lm33": (0.35, 0.40, 0.0), "lm133": (0.45, 0.40, 0.0),
+            "lm160": (0.40, 0.385, 0.0), "lm144": (0.40, 0.415, 0.0),
+            "lm158": (0.42, 0.385, 0.0), "lm153": (0.42, 0.415, 0.0),
+            "lm362": (0.55, 0.40, 0.0), "lm263": (0.65, 0.40, 0.0),
+            "lm385": (0.60, 0.385, 0.0), "lm380": (0.60, 0.415, 0.0),
+            "lm387": (0.62, 0.385, 0.0), "lm373": (0.62, 0.415, 0.0),
+            "lm13": (0.50, 0.58, 0.0), "lm14": (0.50, 0.63, 0.0),
+            "lm61": (0.45, 0.60, 0.0), "lm291": (0.55, 0.60, 0.0),
+        }
+        mp_noisy = {
+            "eyeBlinkLeft": 0.20,
+            "eyeBlinkRight": 0.20,
+            "jawOpen": 0.0,
+        }
+        vrm = map_mediapipe_to_vrm(mp_noisy, landmarks=lm_open)
+        # Suppressed by EAR: blink must be 0.0!
+        self.assertEqual(vrm["blink"], 0.0, "Physical wide open EAR must suppress false eyelid droop")
+        # Mouth open driven by MAR even when jawOpen is 0.0!
+        self.assertGreater(vrm["a"], 0.8, "Physical MAR must drive mouth opening")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -39,6 +39,7 @@ from landmark_mapping import (
     map_mediapipe_to_vrc,
     map_mediapipe_to_vrm,
     compute_head_pose,
+    compute_iris_gaze,
     OneEuroFilter,
     VRC_TARGETS,
     VRM_BLENDSHAPES,
@@ -49,9 +50,10 @@ def format_motion_packet(
     vrc: Optional[Dict[str, float]] = None,
     rotation: Optional[Dict[str, float]] = None,
     vrm: Optional[Dict[str, float]] = None,
+    gaze: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Any]:
     """
-    Format VRM and VRC blendshape weights and 3D head rotation into a clean motion packet.
+    Format VRM and VRC blendshape weights, 3D head rotation, and 2D iris gaze into a clean motion packet.
     """
     if vrc is None:
         vrc = {name: (1.0 if name == "vrc_v_sil" else 0.0) for name in VRC_TARGETS}
@@ -59,11 +61,14 @@ def format_motion_packet(
         vrm = {name: (1.0 if name == "neutral" else 0.0) for name in VRM_BLENDSHAPES}
     if rotation is None:
         rotation = {"pitch": 0.0, "yaw": 0.0, "roll": 0.0}
+    if gaze is None:
+        gaze = {"x": 0.0, "y": 0.0}
 
     return {
         "vrm": vrm,
         "vrc": vrc,
         "rotation": rotation,
+        "gaze": gaze,
         "timestamp": time.time(),
     }
 
@@ -125,10 +130,12 @@ class TrackingWorker(QThread):
         super().__init__()
         self.camera_id = camera_id
         self._running = True
-        # OneEuroFilters for smooth, responsive head rotation without micro-jitter
+        # OneEuroFilters for smooth, responsive head rotation and iris gaze without micro-jitter
         self.filter_pitch = OneEuroFilter(min_cutoff=0.8, beta=0.015)
         self.filter_yaw = OneEuroFilter(min_cutoff=0.8, beta=0.015)
         self.filter_roll = OneEuroFilter(min_cutoff=0.8, beta=0.015)
+        self.filter_gaze_x = OneEuroFilter(min_cutoff=1.0, beta=0.02)
+        self.filter_gaze_y = OneEuroFilter(min_cutoff=1.0, beta=0.02)
 
     def run(self):
         self.status_changed.emit("Initializing webcam & FaceLandmarker...")
@@ -173,31 +180,44 @@ class TrackingWorker(QThread):
                 mp_blendshapes = parse_blendshapes(result)
 
                 if mp_blendshapes and (lm_list or matrix is not None):
-                    vrm_shapes = map_mediapipe_to_vrm(mp_blendshapes)
+                    landmarks = lm_list[0] if lm_list else {}
+                    vrm_shapes = map_mediapipe_to_vrm(mp_blendshapes, landmarks=landmarks)
                     vrc = map_mediapipe_to_vrc(mp_blendshapes)
                     raw_rotation = compute_head_pose(
-                        lm_list[0] if lm_list else {},
+                        landmarks,
                         frame_shape=(h, w),
                         matrix=matrix,
                         pitch_offset_deg=18.0,
                     )
+                    raw_gaze = compute_iris_gaze(landmarks, mp_blendshapes=mp_blendshapes)
 
-                    # Filter rotation to eliminate jitter while keeping instant response
+                    # Filter rotation & iris gaze to eliminate jitter while keeping instant response
                     t_now = time.time()
                     filtered_rotation = {
                         "pitch": self.filter_pitch.filter(raw_rotation["pitch"], t_now),
                         "yaw": self.filter_yaw.filter(raw_rotation["yaw"], t_now),
                         "roll": self.filter_roll.filter(raw_rotation["roll"], t_now),
                     }
+                    filtered_gaze = {
+                        "x": self.filter_gaze_x.filter(raw_gaze["x"], t_now),
+                        "y": self.filter_gaze_y.filter(raw_gaze["y"], t_now),
+                    }
 
-                    packet = format_motion_packet(vrc=vrc, rotation=filtered_rotation, vrm=vrm_shapes)
+                    packet = format_motion_packet(
+                        vrc=vrc,
+                        rotation=filtered_rotation,
+                        vrm=vrm_shapes,
+                        gaze=filtered_gaze,
+                    )
                     self.motion_ready.emit(packet)
                 else:
                     # No face detected in frame -> send decay signal and reset filters
                     self.filter_pitch.reset()
                     self.filter_yaw.reset()
                     self.filter_roll.reset()
-                    packet = format_motion_packet(None, None, None)
+                    self.filter_gaze_x.reset()
+                    self.filter_gaze_y.reset()
+                    packet = format_motion_packet(None, None, None, None)
                     self.motion_ready.emit(packet)
 
             except Exception as e:

@@ -124,9 +124,54 @@ class TestLandmarkMapping(unittest.TestCase):
         except ImportError:
             from src.landmark_mapping import _calibrate_blink
 
-        self.assertEqual(_calibrate_blink(0.05), 0.0)  # Resting eye open
-        self.assertEqual(_calibrate_blink(0.70), 1.0)  # Complete closure snap
+        self.assertEqual(_calibrate_blink(0.05), 0.0)   # Resting eye open
+        self.assertEqual(_calibrate_blink(0.15), 0.0)   # Eye open with slight lighting variation
+        self.assertEqual(_calibrate_blink(0.70), 1.0)   # Complete closure snap
         self.assertGreater(_calibrate_blink(0.35), 0.3)
+
+    def test_blink_resting_eyes_completely_open(self):
+        try:
+            from landmark_mapping import map_mediapipe_to_vrm
+        except ImportError:
+            from src.landmark_mapping import map_mediapipe_to_vrm
+
+        # Natural user state: eyes open, looking at bright monitor with high squint
+        mp_input = {
+            "eyeBlinkLeft": 0.10,
+            "eyeBlinkRight": 0.12,
+            "eyeSquintLeft": 0.35,
+            "eyeSquintRight": 0.35,
+        }
+        vrm = map_mediapipe_to_vrm(mp_input)
+        self.assertEqual(vrm["blink"], 0.0, "Avatar blink must be 0.0 when user eyes are open")
+        self.assertEqual(vrm["blink_l"], 0.0, "Avatar blink_l must be 0.0 when user eyes are open")
+        self.assertEqual(vrm["blink_r"], 0.0, "Avatar blink_r must be 0.0 when user eyes are open")
+
+    def test_blink_independent_winking(self):
+        try:
+            from landmark_mapping import map_mediapipe_to_vrm
+        except ImportError:
+            from src.landmark_mapping import map_mediapipe_to_vrm
+
+        # Wink left eye
+        mp_wink_l = {
+            "eyeBlinkLeft": 0.80,
+            "eyeBlinkRight": 0.05,
+        }
+        vrm_l = map_mediapipe_to_vrm(mp_wink_l)
+        self.assertEqual(vrm_l["blink"], 0.0)
+        self.assertEqual(vrm_l["blink_l"], 1.0)
+        self.assertEqual(vrm_l["blink_r"], 0.0)
+
+        # Wink right eye
+        mp_wink_r = {
+            "eyeBlinkLeft": 0.05,
+            "eyeBlinkRight": 0.80,
+        }
+        vrm_r = map_mediapipe_to_vrm(mp_wink_r)
+        self.assertEqual(vrm_r["blink"], 0.0)
+        self.assertEqual(vrm_r["blink_l"], 0.0)
+        self.assertEqual(vrm_r["blink_r"], 1.0)
 
 
 if __name__ == "__main__":

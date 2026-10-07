@@ -327,9 +327,15 @@
     let maxWeight = 0.0;
 
     for (const [key, targetVal] of Object.entries(targetMotion.vrm)) {
-      const lerpFactor = (key === "blink" || key === "blink_l" || key === "blink_r") ? 0.85 : 0.45;
+      const isBlink = (key === "blink" || key === "blink_l" || key === "blink_r");
+      const lerpFactor = isBlink ? 0.85 : 0.45;
       currentMotion.vrm[key] +=
         (targetVal - currentMotion.vrm[key]) * lerpFactor;
+
+      // Clean snap to 0.0 when target is 0 and residual value is tiny, preventing eyelid droop
+      if (isBlink && targetVal === 0.0 && currentMotion.vrm[key] < 0.01) {
+        currentMotion.vrm[key] = 0.0;
+      }
 
       if (currentVrm && currentVrm.blendShapeProxy) {
         currentVrm.blendShapeProxy.setValue(key, currentMotion.vrm[key]);

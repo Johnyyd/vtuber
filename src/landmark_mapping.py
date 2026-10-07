@@ -76,7 +76,7 @@ def map_mediapipe_to_vrc(mp_blendshapes: Dict[str, float]) -> Dict[str, float]:
 
     # 1. Eye Blink (both eyes)
     blink_avg = (g("eyeBlinkLeft") + g("eyeBlinkRight")) * 0.5
-    vrc["vrc_blink"] = _clamp(blink_avg * 1.2)
+    vrc["vrc_blink"] = _calibrate_blink(blink_avg, deadzone=0.16, snap_thresh=0.45)
 
     # 2. Visemes
     # "aa" - wide open mouth (jawOpen)
@@ -138,10 +138,10 @@ def map_mediapipe_to_vrc(mp_blendshapes: Dict[str, float]) -> Dict[str, float]:
     return vrc
 
 
-def _calibrate_blink(raw: float, deadzone: float = 0.10, snap_thresh: float = 0.60) -> float:
+def _calibrate_blink(raw: float, deadzone: float = 0.16, snap_thresh: float = 0.45) -> float:
     """
     Calibrate raw MediaPipe blink value:
-    - Below deadzone: 0.0 (prevents sleepy eyes when open)
+    - Below deadzone: 0.0 (prevents sleepy/half-closed eyes when open)
     - Above snap_thresh: 1.0 (snappy, complete blink closure)
     - In between: smooth Hermite curve
     """
@@ -229,24 +229,20 @@ def map_mediapipe_to_vrm(mp_blendshapes: Dict[str, float]) -> Dict[str, float]:
     vrm["neutral"] = _clamp(1.0 - (vrm["a"] + vrm["i"] + vrm["u"] + vrm["e"] + vrm["o"]))
 
     # 2. Eye Blinks & Independent Winking
+    # Use calibrated eyeBlink directly (squint is excluded to prevent droopy/jittery eyelids at rest)
     raw_l = g("eyeBlinkLeft")
     raw_r = g("eyeBlinkRight")
-    squint_l = g("eyeSquintLeft")
-    squint_r = g("eyeSquintRight")
-    # Include eyelid squint for webcam lighting robustness
-    eff_l = max(raw_l, squint_l * 0.70)
-    eff_r = max(raw_r, squint_r * 0.70)
 
-    bl_l = _clamp((eff_l - 0.08) * 2.6) if eff_l > 0.08 else 0.0
-    bl_r = _clamp((eff_r - 0.08) * 2.6) if eff_r > 0.08 else 0.0
+    bl_l = _calibrate_blink(raw_l, deadzone=0.16, snap_thresh=0.45)
+    bl_r = _calibrate_blink(raw_r, deadzone=0.16, snap_thresh=0.45)
 
-    if bl_l > 0.25 and bl_r > 0.25:
-        # Both eyes blinking
+    if bl_l > 0.0 and bl_r > 0.0 and abs(bl_l - bl_r) < 0.25:
+        # Synchronized natural blink: both eyes closing together
         vrm["blink"] = max(bl_l, bl_r)
         vrm["blink_l"] = 0.0
         vrm["blink_r"] = 0.0
     else:
-        # Independent winking
+        # Independent winking or resting (both 0.0)
         vrm["blink"] = 0.0
         vrm["blink_l"] = bl_l
         vrm["blink_r"] = bl_r

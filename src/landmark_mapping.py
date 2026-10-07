@@ -427,20 +427,20 @@ def map_mediapipe_to_vrm(
 
     # Phonetically distinct Japanese / Anime vowel classification:
     # "U": Protruded tight lips. Natural speech pucker is 0.06 - 0.16
-    is_u = pucker > 0.06 and funnel < 0.25 and raw_a < 0.45
-    vrm["u"] = _clamp((pucker - 0.04) * 4.5) if is_u else 0.0
+    is_u = pucker > 0.05 and funnel < 0.25 and raw_a < 0.50
+    vrm["u"] = _clamp((pucker - 0.03) * 4.5) if is_u else 0.0
 
     # "O": Rounded open funnel, or pucker with open jaw
-    is_o = funnel > 0.06 or (pucker > 0.06 and raw_a > 0.20)
-    vrm["o"] = _clamp(max(funnel * 3.5, (pucker * 2.5 if raw_a > 0.15 else 0.0))) if is_o else 0.0
+    is_o = funnel > 0.05 or (pucker > 0.05 and raw_a > 0.15)
+    vrm["o"] = _clamp(max(funnel * 4.0, (pucker * 3.0 if raw_a > 0.10 else 0.0))) if is_o else 0.0
 
     # "E": Horizontal mouth stretch with moderate/open jaw
-    is_e = stretch > 0.06 and raw_a > 0.10
-    vrm["e"] = _clamp((stretch - 0.04) * 3.5 + raw_a * 0.5) if is_e else 0.0
+    is_e = stretch > 0.05 and raw_a > 0.05
+    vrm["e"] = _clamp((stretch - 0.03) * 4.0 + raw_a * 0.6) if is_e else 0.0
 
     # "I": Wide grin/teeth visible with low jaw opening
-    is_i = (stretch > 0.06 or smile > 0.12) and raw_a <= 0.35 and not is_u and not is_o
-    vrm["i"] = _clamp(max((stretch - 0.04) * 3.5, (smile - 0.08) * 2.2)) if is_i else 0.0
+    is_i = (stretch > 0.05 or smile > 0.10) and raw_a <= 0.45 and not is_u and not is_o
+    vrm["i"] = _clamp(max((stretch - 0.03) * 4.0, (smile - 0.05) * 2.5)) if is_i else 0.0
 
     # "A": Primary vertical jaw opening, minus other vowel shapes
     a_suppression = max(vrm["o"] * 0.60, vrm["u"] * 0.85, vrm["i"] * 0.75, vrm["e"] * 0.50)

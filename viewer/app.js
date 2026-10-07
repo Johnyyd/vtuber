@@ -72,7 +72,10 @@
   let lastMotionTimestamp = 0;
   let frameCount = 0;
   let lastFpsTime = performance.now();
-  let blinkHoldUntil = 0;
+  
+  // Blink State Machine
+  let blinkState = "IDLE"; // IDLE, HOLD, COOLDOWN
+  let blinkTimer = 0;
   let activeBlinkType = null;
 
   function init() {
@@ -252,14 +255,23 @@
       }
     });
 
-    // Extract exact morph target indices from VRM blendShapeProxy groups
-    if (currentVrm && currentVrm.blendShapeProxy && currentVrm.blendShapeProxy._blendShapeGroups) {
-      for (const [groupName, group] of Object.entries(currentVrm.blendShapeProxy._blendShapeGroups)) {
-        if (group && group._binds && group._binds.length > 0) {
-          const idx = group._binds[0].morphTargetIndex;
-          morphIndexMap[groupName.toLowerCase()] = idx;
-          if (group.presetName) {
-            morphIndexMap[group.presetName.toLowerCase()] = idx;
+    // Extract exact morph target indices from VRM blendShapeProxy groups (VRM 0.0) or expressionManager (VRM 1.0)
+    if (currentVrm) {
+      if (currentVrm.blendShapeProxy && currentVrm.blendShapeProxy._blendShapeGroups) {
+        for (const [groupName, group] of Object.entries(currentVrm.blendShapeProxy._blendShapeGroups)) {
+          if (group && group._binds && group._binds.length > 0) {
+            const idx = group._binds[0].morphTargetIndex;
+            morphIndexMap[groupName.toLowerCase()] = idx;
+            if (group.presetName) {
+              morphIndexMap[group.presetName.toLowerCase()] = idx;
+            }
+          }
+        }
+      } else if (currentVrm.expressionManager && currentVrm.expressionManager.expressions) {
+        for (const [groupName, group] of Object.entries(currentVrm.expressionManager.expressions)) {
+          if (group && group._binds && group._binds.length > 0) {
+            const idx = group._binds[0].index;
+            morphIndexMap[groupName.toLowerCase()] = idx;
           }
         }
       }
@@ -296,32 +308,9 @@
     const now = performance.now();
 
     if (data.vrm) {
-      // Immediate blink/wink trigger registration upon packet arrival
-      if (data.vrm.blink >= 0.18) {
-        if (now > blinkHoldUntil) {
-          blinkHoldUntil = now + 120; // Hold for at least 120ms to ensure full visible closure
-          activeBlinkType = "blink";
-        }
-      } else if (data.vrm.blink_l >= 0.35) {
-        if (now > blinkHoldUntil) {
-          blinkHoldUntil = now + 120;
-          activeBlinkType = "blink_l";
-        }
-      } else if (data.vrm.blink_r >= 0.35) {
-        if (now > blinkHoldUntil) {
-          blinkHoldUntil = now + 120;
-          activeBlinkType = "blink_r";
-        }
-      }
-
       for (const [k, v] of Object.entries(data.vrm)) {
         if (targetMotion.vrm.hasOwnProperty(k)) {
-          // If in an active blink hold window, preserve eyelid closure at 1.0
-          if (now < blinkHoldUntil && k === activeBlinkType) {
-            targetMotion.vrm[k] = 1.0;
-          } else {
-            targetMotion.vrm[k] = v;
-          }
+          targetMotion.vrm[k] = v;
         }
       }
     }
@@ -340,7 +329,7 @@
       targetMotion.rotation.roll = data.rotation.roll || 0.0;
     }
 
-    if (data.gaze && now >= blinkHoldUntil) {
+    if (data.gaze && blinkState !== "HOLD") {
       targetMotion.gaze.x = data.gaze.x || 0.0;
       targetMotion.gaze.y = data.gaze.y || 0.0;
     }
@@ -412,20 +401,37 @@
       headBone.rotation.set(p * 0.7, y * 0.7, r * 0.7);
     }
 
-    // Check if blink hold window has completed
-    if (now >= blinkHoldUntil && activeBlinkType) {
-      targetMotion.vrm[activeBlinkType] = 0.0;
-      activeBlinkType = null;
+    // Blink State Machine (Runs every frame)
+    if (blinkState === "IDLE") {
+      if (targetMotion.vrm.blink >= 0.18 || targetMotion.vrm.blink_l >= 0.35 || targetMotion.vrm.blink_r >= 0.35) {
+        blinkState = "HOLD";
+        blinkTimer = now + 150; // Hold for at least 150ms
+        if (targetMotion.vrm.blink >= 0.18) activeBlinkType = "blink";
+        else if (targetMotion.vrm.blink_l >= 0.35) activeBlinkType = "blink_l";
+        else activeBlinkType = "blink_r";
+      }
+    } else if (blinkState === "HOLD") {
+      const physicalBlink = targetMotion.vrm.blink >= 0.18 || targetMotion.vrm.blink_l >= 0.35 || targetMotion.vrm.blink_r >= 0.35;
+      if (now >= blinkTimer && !physicalBlink) {
+        blinkState = "COOLDOWN";
+        blinkTimer = now + 200; // Cooldown for 200ms
+      }
+    } else if (blinkState === "COOLDOWN") {
+      if (now >= blinkTimer) {
+        blinkState = "IDLE";
+        activeBlinkType = null;
+      }
     }
 
     // Check if eyes are blinking or closing
+    const isBlinkActive = blinkState === "HOLD";
     const isBothBlink = (
       currentMotion.vrm.blink > 0.10 ||
       targetMotion.vrm.blink > 0.15 ||
-      (now < blinkHoldUntil && activeBlinkType === "blink")
+      (isBlinkActive && activeBlinkType === "blink")
     );
-    const isLeftClosing = isBothBlink || currentMotion.vrm.blink_l > 0.15 || (now < blinkHoldUntil && activeBlinkType === "blink_l");
-    const isRightClosing = isBothBlink || currentMotion.vrm.blink_r > 0.15 || (now < blinkHoldUntil && activeBlinkType === "blink_r");
+    const isLeftClosing = isBothBlink || currentMotion.vrm.blink_l > 0.15 || (isBlinkActive && activeBlinkType === "blink_l");
+    const isRightClosing = isBothBlink || currentMotion.vrm.blink_r > 0.15 || (isBlinkActive && activeBlinkType === "blink_r");
 
     // LERP interpolate iris gaze smoothly when eyes are open; freeze during blink
     if (!isBothBlink) {
@@ -461,8 +467,12 @@
       const isBlink = (key === "blink" || key === "blink_l" || key === "blink_r");
 
       let effectiveTarget = rawTargetVal;
-      if (isBlink && now < blinkHoldUntil && activeBlinkType === key) {
-        effectiveTarget = Math.max(rawTargetVal, 1.0);
+      if (isBlink) {
+         if (blinkState === "HOLD" && activeBlinkType === key) {
+           effectiveTarget = Math.max(rawTargetVal, 1.0);
+         } else if (blinkState === "COOLDOWN") {
+           effectiveTarget = 0.0;
+         }
       }
 
       // Asymmetric LERP: snap close instantly (0.95), open smoothly (0.35)
@@ -477,10 +487,12 @@
         currentMotion.vrm[key] = 0.0;
       }
 
-      if (currentVrm && currentVrm.blendShapeProxy) {
-        try {
-          currentVrm.blendShapeProxy.setValue(key, currentMotion.vrm[key]);
-        } catch (_) {}
+      if (currentVrm) {
+        if (currentVrm.blendShapeProxy) {
+          try { currentVrm.blendShapeProxy.setValue(key, currentMotion.vrm[key]); } catch (_) {}
+        } else if (currentVrm.expressionManager) {
+          try { currentVrm.expressionManager.setValue(key, currentMotion.vrm[key]); } catch (_) {}
+        }
       }
 
       if (key !== "neutral" && currentMotion.vrm[key] > maxWeight) {
@@ -490,8 +502,9 @@
     }
 
     // Immediately flush blendShapeProxy values to mesh morph targets
-    if (currentVrm && currentVrm.blendShapeProxy) {
-      currentVrm.blendShapeProxy.update();
+    if (currentVrm) {
+      if (currentVrm.blendShapeProxy) currentVrm.blendShapeProxy.update();
+      if (currentVrm.expressionManager) currentVrm.expressionManager.update();
     }
 
     // Direct synchronization to mesh morphTargetInfluences to guarantee instant GPU rendering

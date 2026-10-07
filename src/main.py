@@ -1,50 +1,54 @@
-import cv2
-import mediapipe as mp
+"""
+Main Entry Point: Desktop VTuber 3D Avatar Application
+"""
 
-from face_detector import create_face_landmarker, parse_landmarks, parse_blendshapes
-from landmark_mapping import map_landmarks_to_blendshapes, map_mediapipe_to_vrm
-from vrm_renderer import render_vrm
+import sys
+import argparse
+from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import QCoreApplication
+
+from src.vrm_renderer import VTuberWindow
+
+
+def parse_args(argv=None):
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description="VTuber 3D Avatar Desktop Application")
+    parser.add_argument(
+        "--camera-id",
+        type=int,
+        default=0,
+        help="Webcam device index (default: 0)",
+    )
+    parser.add_argument(
+        "--width",
+        type=int,
+        default=1024,
+        help="Initial window width (default: 1024)",
+    )
+    parser.add_argument(
+        "--height",
+        type=int,
+        default=768,
+        help="Initial window height (default: 768)",
+    )
+    return parser.parse_args(argv)
 
 
 def main():
-    cap = cv2.VideoCapture(0)
-    if not cap.isOpened():
-        print("[Error] Cannot access webcam.")
-        return
+    args = parse_args(sys.argv[1:])
 
-    landmarker = create_face_landmarker()
-    timestamp = 0
+    app = QApplication(sys.argv)
+    app.setApplicationName("VTuber 3D Avatar")
+    app.setOrganizationName("VTuber")
 
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
+    window = VTuberWindow(
+        camera_id=args.camera_id,
+        width=args.width,
+        height=args.height,
+    )
+    window.show()
 
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-
-        # Process frame and get landmarks + blendshapes
-        result = landmarker.detect_for_video(mp_image, timestamp)
-        timestamp += 1
-
-        lm_list = parse_landmarks(result)
-        mp_blendshapes = parse_blendshapes(result)
-
-        # Convert MediaPipe (ARKit) blendshapes to VRM blendshape groups
-        if mp_blendshapes:
-            vrm_blendshapes = map_mediapipe_to_vrm(mp_blendshapes)
-            render_vrm(vrm_blendshapes)
-        elif lm_list:
-            # Fallback to custom mapping if blendshapes not available
-            bs = map_landmarks_to_blendshapes(lm_list[0])
-            render_vrm(bs)
-
-        cv2.imshow("Face Mesh (raw)", frame)
-        if cv2.waitKey(1) & 0xFF == 27:  # ESC
-            break
-
-    cap.release()
-    cv2.destroyAllWindows()
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

@@ -2,3 +2,5 @@ mediapipe>=0.10.35
 opencv-python>=4.7.0.72
 numpy
 pygltflib>=1.16
+PyQt6>=6.5.0
+PyQt6-WebEngine>=6.5.0

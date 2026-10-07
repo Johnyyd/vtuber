@@ -55,11 +55,11 @@
     // 1. Scene setup
     scene = new THREE.Scene();
 
-    // 2. Camera setup - focused on avatar upper body / face
+    // 2. Camera setup - focused on avatar upper body with ample headroom for hair/forehead
     const aspect = window.innerWidth / window.innerHeight;
-    camera = new THREE.PerspectiveCamera(28.0, aspect, 0.1, 20.0);
-    camera.position.set(0.0, 1.48, 0.85);
-    camera.lookAt(0.0, 1.44, 0.0);
+    camera = new THREE.PerspectiveCamera(30.0, aspect, 0.1, 20.0);
+    camera.position.set(0.0, 1.40, 1.15);
+    camera.lookAt(0.0, 1.32, 0.0);
 
     // 3. Renderer setup
     renderer = new THREE.WebGLRenderer({
@@ -167,6 +167,8 @@
   function setupModelReferences(root) {
     // Face the camera directly (rotate 180 degrees around Y axis)
     root.rotation.y = Math.PI;
+    // Lower model slightly so head and forehead are never cropped at top
+    root.position.y = -0.08;
 
     // Traverse to find Mesh_InteriorMouth2 and bone nodes
     root.traverse((obj) => {

@@ -12,6 +12,7 @@
 
   // Dictionary mapping target keys to mesh morph target indices
   const morphIndexMap = {};
+  const morphMeshes = [];
 
   // Motion target and current interpolated values
   const targetMotion = {
@@ -205,6 +206,7 @@
     root.traverse((obj) => {
       if (obj.isMesh && obj.morphTargetDictionary) {
         mouthMesh = obj;
+        morphMeshes.push(obj);
         // Build mapping from target keys to morph target indices
         for (const [targetName, idx] of Object.entries(obj.morphTargetDictionary)) {
           for (const key of Object.keys(targetMotion.vrc)) {
@@ -265,6 +267,9 @@
 
     lastMotionTimestamp = performance.now();
   };
+
+  window.currentMotion = currentMotion;
+  window.targetMotion = targetMotion;
 
   function animate(now) {
     requestAnimationFrame(animate);
@@ -347,28 +352,17 @@
       }
     }
 
-    if (currentVrm && currentVrm.blendShapeProxy) {
-      currentVrm.blendShapeProxy.update();
-    }
-
-    // Direct mesh morph target update on Face.baked to guarantee active blinking and mouth movements
-    if (mouthMesh && mouthMesh.morphTargetInfluences) {
-      // Yong Face.baked indices:
-      // Blink: 10, Blink_R: 11, Blink_L: 12
-      // A: 23, I: 24, U: 25, E: 26, O: 27
-      // Fun: 0, Sorrow: 1, Angry: 2, Joy: 3
-      mouthMesh.morphTargetInfluences[10] = currentMotion.vrm.blink || 0;
-      mouthMesh.morphTargetInfluences[11] = currentMotion.vrm.blink_r || 0;
-      mouthMesh.morphTargetInfluences[12] = currentMotion.vrm.blink_l || 0;
-      mouthMesh.morphTargetInfluences[23] = currentMotion.vrm.a || 0;
-      mouthMesh.morphTargetInfluences[24] = currentMotion.vrm.i || 0;
-      mouthMesh.morphTargetInfluences[25] = currentMotion.vrm.u || 0;
-      mouthMesh.morphTargetInfluences[26] = currentMotion.vrm.e || 0;
-      mouthMesh.morphTargetInfluences[27] = currentMotion.vrm.o || 0;
-      mouthMesh.morphTargetInfluences[3]  = currentMotion.vrm.joy || 0;
-      mouthMesh.morphTargetInfluences[2]  = currentMotion.vrm.angry || 0;
-      mouthMesh.morphTargetInfluences[1]  = currentMotion.vrm.sorrow || 0;
-      mouthMesh.morphTargetInfluences[0]  = currentMotion.vrm.fun || 0;
+    // Fallback direct morph target update only when VRM blendShapeProxy is not available
+    if ((!currentVrm || !currentVrm.blendShapeProxy) && morphMeshes.length > 0) {
+      for (const mesh of morphMeshes) {
+        if (mesh.morphTargetInfluences) {
+          for (const [k, v] of Object.entries(currentMotion.vrm)) {
+            if (morphIndexMap[k] !== undefined) {
+              mesh.morphTargetInfluences[morphIndexMap[k]] = v;
+            }
+          }
+        }
+      }
     }
 
     const expEl = document.getElementById("hud-expression");
@@ -376,7 +370,7 @@
       expEl.innerText = maxWeight > 0.2 ? topExpression : "Neutral";
     }
 
-    // Update VRM internal components (spring bones, physics)
+    // Update VRM internal components (spring bones, physics, and blendshapes)
     if (currentVrm) {
       const delta = clock.getDelta();
       currentVrm.update(delta);

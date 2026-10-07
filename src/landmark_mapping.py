@@ -204,8 +204,8 @@ def map_mediapipe_to_vrm(mp_blendshapes: Dict[str, float]) -> Dict[str, float]:
 
     # 1. Mouth / Visemes - Driven directly by jawOpen for reliable speech
     jaw = g("jawOpen")
-    # Deadzone 0.05, sensitive gain above
-    jaw_active = _clamp((jaw - 0.05) * 2.2) if jaw > 0.05 else 0.0
+    # Natural speech sensitivity: small deadzone at 0.015, responsive gain above
+    jaw_active = _clamp((jaw - 0.015) * 2.5) if jaw > 0.015 else 0.0
     stretch = (g("mouthStretchLeft") + g("mouthStretchRight")) * 0.5
     smile = (g("mouthSmileLeft") + g("mouthSmileRight")) * 0.5
     pucker = g("mouthPucker")
@@ -215,16 +215,16 @@ def map_mediapipe_to_vrm(mp_blendshapes: Dict[str, float]) -> Dict[str, float]:
     vrm["a"] = jaw_active
 
     # "I": Horizontal smile / grin stretch
-    vrm["i"] = _clamp((stretch * 0.7 + smile * 0.5) if jaw_active < 0.25 else 0.0)
+    vrm["i"] = _clamp((stretch * 0.7 + smile * 0.6) if jaw_active < 0.35 else 0.0)
 
     # "U": Rounded whistle / pucker, active only when puckered with relatively closed mouth
-    vrm["u"] = _clamp(pucker * 0.8 if (pucker > 0.5 and jaw_active < 0.25) else 0.0)
+    vrm["u"] = _clamp(pucker * 0.8 if (pucker > 0.25 and jaw_active < 0.30) else 0.0)
 
     # "E": Intermediate open stretch
-    vrm["e"] = _clamp((jaw_active * 0.6 + stretch * 0.5) if (jaw_active > 0.1 and stretch > 0.15) else 0.0)
+    vrm["e"] = _clamp((jaw_active * 0.6 + stretch * 0.5) if (jaw_active > 0.06 and stretch > 0.10) else 0.0)
 
     # "O": Funnel / round open mouth
-    vrm["o"] = _clamp(funnel * 0.9 if funnel > 0.25 else 0.0)
+    vrm["o"] = _clamp(funnel * 0.9 if funnel > 0.18 else 0.0)
 
     vrm["neutral"] = _clamp(1.0 - (vrm["a"] + vrm["i"] + vrm["u"] + vrm["e"] + vrm["o"]))
 

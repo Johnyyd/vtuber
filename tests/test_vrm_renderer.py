@@ -39,6 +39,20 @@ class TestVRMRenderer(unittest.TestCase):
         self.assertEqual(packet["vrm"]["neutral"], 1.0)
         self.assertEqual(packet["rotation"], {"pitch": 0.0, "yaw": 0.0, "roll": 0.0})
 
+    def test_camera_reader_class_lifecycle(self):
+        try:
+            from vrm_renderer import CameraReader
+        except ImportError:
+            from src.vrm_renderer import CameraReader
+
+        # Invalid camera ID to verify safe handling and cleanup without hanging
+        reader = CameraReader(camera_id=999)
+        self.assertFalse(reader.is_opened())
+        ret, frame = reader.read_latest()
+        self.assertFalse(ret)
+        self.assertIsNone(frame)
+        reader.release()
+
 
 if __name__ == "__main__":
     unittest.main()

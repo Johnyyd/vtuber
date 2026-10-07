@@ -11,6 +11,7 @@ import os
 import sys
 import json
 import time
+import threading
 from typing import Dict, Any, Optional
 
 _CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -67,6 +68,52 @@ def format_motion_packet(
     }
 
 
+class CameraReader:
+    """
+    Decoupled background camera capture thread.
+    Continuously drains the V4L2 camera buffer to prevent queue accumulation
+    and guarantees zero-latency, real-time latest frames.
+    """
+    def __init__(self, camera_id: int = 0, width: int = 640, height: int = 480, fps: int = 30):
+        self.cap = cv2.VideoCapture(camera_id)
+        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        self.cap.set(cv2.CAP_PROP_FPS, fps)
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        self.running = True
+        self.lock = threading.Lock()
+        self.frame = None
+        self.ret = False
+        self.thread = threading.Thread(target=self._capture_loop, daemon=True)
+        self.thread.start()
+
+    def _capture_loop(self):
+        while self.running:
+            ret, frame = self.cap.read()
+            if ret:
+                with self.lock:
+                    self.ret = ret
+                    self.frame = frame
+            else:
+                time.sleep(0.005)
+
+    def read_latest(self):
+        with self.lock:
+            if not self.ret or self.frame is None:
+                return False, None
+            return True, self.frame
+
+    def is_opened(self) -> bool:
+        return self.cap.isOpened()
+
+    def release(self):
+        self.running = False
+        if hasattr(self, "thread"):
+            self.thread.join(timeout=0.5)
+        self.cap.release()
+
+
 class TrackingWorker(QThread):
     """
     Background worker thread capturing webcam frames and computing facial tracking.
@@ -85,80 +132,80 @@ class TrackingWorker(QThread):
 
     def run(self):
         self.status_changed.emit("Initializing webcam & FaceLandmarker...")
-        cap = cv2.VideoCapture(self.camera_id)
+        reader = CameraReader(camera_id=self.camera_id, width=640, height=480, fps=30)
 
-        if not cap.isOpened():
+        if not reader.is_opened():
             self.status_changed.emit(f"Error: Unable to open camera {self.camera_id}")
+            reader.release()
             return
-
-        # Optimize camera latency and frame streaming
-        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        cap.set(cv2.CAP_PROP_FPS, 30)
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         try:
             landmarker = create_face_landmarker()
         except Exception as e:
             self.status_changed.emit(f"Error loading FaceLandmarker: {e}")
-            cap.release()
+            reader.release()
             return
 
         self.status_changed.emit("Camera tracking active")
         last_timestamp_ms = 0
 
         while self._running:
-            ret, frame = cap.read()
-            if not ret:
+            try:
+                ret, frame = reader.read_latest()
+                if not ret or frame is None:
+                    time.sleep(0.005)
+                    continue
+
+                h, w = frame.shape[:2]
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+
+                # Use monotonically increasing wall-clock timestamps for accurate MediaPipe video filters
+                now_ms = int(time.time() * 1000)
+                if now_ms <= last_timestamp_ms:
+                    now_ms = last_timestamp_ms + 1
+                last_timestamp_ms = now_ms
+
+                result = landmarker.detect_for_video(mp_image, now_ms)
+
+                matrix = parse_transformation_matrix(result)
+                lm_list = parse_landmarks(result)
+                mp_blendshapes = parse_blendshapes(result)
+
+                if mp_blendshapes and (lm_list or matrix is not None):
+                    vrm_shapes = map_mediapipe_to_vrm(mp_blendshapes)
+                    vrc = map_mediapipe_to_vrc(mp_blendshapes)
+                    raw_rotation = compute_head_pose(
+                        lm_list[0] if lm_list else {},
+                        frame_shape=(h, w),
+                        matrix=matrix,
+                        pitch_offset_deg=18.0,
+                    )
+
+                    # Filter rotation to eliminate jitter while keeping instant response
+                    t_now = time.time()
+                    filtered_rotation = {
+                        "pitch": self.filter_pitch.filter(raw_rotation["pitch"], t_now),
+                        "yaw": self.filter_yaw.filter(raw_rotation["yaw"], t_now),
+                        "roll": self.filter_roll.filter(raw_rotation["roll"], t_now),
+                    }
+
+                    packet = format_motion_packet(vrc=vrc, rotation=filtered_rotation, vrm=vrm_shapes)
+                    self.motion_ready.emit(packet)
+                else:
+                    # No face detected in frame -> send decay signal and reset filters
+                    self.filter_pitch.reset()
+                    self.filter_yaw.reset()
+                    self.filter_roll.reset()
+                    packet = format_motion_packet(None, None, None)
+                    self.motion_ready.emit(packet)
+
+            except Exception as e:
+                # Catch any transient frame processing exceptions without terminating tracking thread
+                print(f"[TrackingWorker Warning] Transient frame error: {e}")
                 time.sleep(0.01)
-                continue
 
-            h, w = frame.shape[:2]
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-
-            # Use monotonically increasing wall-clock timestamps for accurate MediaPipe video filters
-            now_ms = int(time.time() * 1000)
-            if now_ms <= last_timestamp_ms:
-                now_ms = last_timestamp_ms + 1
-            last_timestamp_ms = now_ms
-
-            result = landmarker.detect_for_video(mp_image, now_ms)
-
-            matrix = parse_transformation_matrix(result)
-            lm_list = parse_landmarks(result)
-            mp_blendshapes = parse_blendshapes(result)
-
-            if mp_blendshapes and (lm_list or matrix is not None):
-                vrm_shapes = map_mediapipe_to_vrm(mp_blendshapes)
-                vrc = map_mediapipe_to_vrc(mp_blendshapes)
-                raw_rotation = compute_head_pose(
-                    lm_list[0] if lm_list else {},
-                    frame_shape=(h, w),
-                    matrix=matrix,
-                    pitch_offset_deg=18.0,
-                )
-
-                # Filter rotation to eliminate jitter while keeping instant response
-                t_now = time.time()
-                filtered_rotation = {
-                    "pitch": self.filter_pitch.filter(raw_rotation["pitch"], t_now),
-                    "yaw": self.filter_yaw.filter(raw_rotation["yaw"], t_now),
-                    "roll": self.filter_roll.filter(raw_rotation["roll"], t_now),
-                }
-
-                packet = format_motion_packet(vrc=vrc, rotation=filtered_rotation, vrm=vrm_shapes)
-                self.motion_ready.emit(packet)
-            else:
-                # No face detected in frame -> send decay signal and reset filters
-                self.filter_pitch.reset()
-                self.filter_yaw.reset()
-                self.filter_roll.reset()
-                packet = format_motion_packet(None, None, None)
-                self.motion_ready.emit(packet)
-
-        cap.release()
+        reader.release()
         self.status_changed.emit("Camera stopped")
 
     def stop(self):

@@ -522,8 +522,8 @@ def map_mediapipe_to_vrm(
         vrm["blink"] = _clamp(vrm["blink"] - vrm["joy"])
         vrm["blink_l"] = _clamp(vrm["blink_l"] - vrm["joy"])
         vrm["blink_r"] = _clamp(vrm["blink_r"] - vrm["joy"])
-    vrm["angry"] = _clamp((g("browDownLeft") + g("browDownRight")) * 0.8)
-    vrm["sorrow"] = _clamp(g("browInnerUp") * 0.85)
+    vrm["angry"] = _clamp((g("browDownLeft") + g("browDownRight")) * 1.5)
+    vrm["sorrow"] = _clamp(g("browInnerUp") * 1.2)
     vrm["fun"] = _clamp((g("eyeWideLeft") + g("eyeWideRight")) * 0.5 + vrm["a"] * 0.3)
 
     # 4. Gaze Direction (VRM Blendshape fallback)

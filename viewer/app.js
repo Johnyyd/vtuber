@@ -433,7 +433,7 @@
     let topEye = "Open";
     let maxEyeWeight = 0.0;
     
-    const eyeKeys = ["blink", "blink_l", "blink_r", "joy", "fun", "sorrow"];
+    const eyeKeys = ["blink", "blink_l", "blink_r", "joy", "fun", "sorrow", "angry"];
     const mouthKeys = ["a", "i", "u", "e", "o", "joy", "angry", "sorrow", "fun"];
 
     for (const [key, rawTargetVal] of Object.entries(targetMotion.vrm)) {

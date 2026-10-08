@@ -315,7 +315,8 @@ class VTuberWindow(QMainWindow):
     def on_motion_ready(self, packet: dict):
         """Forward motion data into Javascript runtime via direct in-memory IPC."""
         json_str = json.dumps(packet)
-        self.web_view.page().runJavaScript(f"window.updateMotion({json_str});")
+        js_code = f"if (typeof window.updateMotion === 'function') {{ window.updateMotion({json_str}); }}"
+        self.web_view.page().runJavaScript(js_code)
 
     def keyPressEvent(self, event):
         """Allow quick exit via Esc or Q key."""

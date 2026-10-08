@@ -352,8 +352,8 @@
     // Yaw: follows natural user gaze
     // Roll: inverted to correct left/right tilt inversion
     const p = -currentMotion.rotation.pitch;
-    const y = currentMotion.rotation.yaw;
-    const r = -currentMotion.rotation.roll;
+    const y = -currentMotion.rotation.yaw;
+    const r = currentMotion.rotation.roll;
 
     if (neckBone) {
       neckBone.rotation.set(p * 0.3, y * 0.3, r * 0.3);
@@ -415,7 +415,7 @@
     const eyePitchOffset = -0.07; // Downward pitch offset (~4 deg) to lower the pupil to natural height
 
     const eyeRotX = -currentMotion.gaze.y * maxEyeAngle + eyePitchOffset;
-    const eyeRotY = currentMotion.gaze.x * maxEyeAngle;
+    const eyeRotY = -currentMotion.gaze.x * maxEyeAngle;
 
     // Freeze eyeball bone rotation while eyelids are closing, closed, or opening!
     // This completely eliminates any jumping, snapping, or twitching of pupils during blinks.

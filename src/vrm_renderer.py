@@ -140,7 +140,7 @@ class TrackingWorker(QThread):
 
     def run(self):
         self.status_changed.emit("Initializing webcam & FaceLandmarker...")
-        reader = CameraReader(camera_id=self.camera_id, width=640, height=480, fps=30)
+        reader = CameraReader(camera_id=self.camera_id, width=1280, height=720, fps=30)
 
         if not reader.is_opened():
             self.status_changed.emit(f"Error: Unable to open camera {self.camera_id}")

@@ -36,6 +36,9 @@ def create_face_landmarker():
         base_options=base_options,
         running_mode=vision.RunningMode.VIDEO,
         num_faces=1,
+        min_face_detection_confidence=0.25,
+        min_face_presence_confidence=0.25,
+        min_tracking_confidence=0.25,
         output_face_blendshapes=True,
         output_facial_transformation_matrixes=True,
     )

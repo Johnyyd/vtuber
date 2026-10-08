@@ -182,14 +182,14 @@ class TrackingWorker(QThread):
 
                 if mp_blendshapes and (lm_list or matrix is not None):
                     landmarks = lm_list[0] if lm_list else {}
-                    vrm_shapes = map_mediapipe_to_vrm(mp_blendshapes, landmarks=landmarks)
-                    vrc = map_mediapipe_to_vrc(mp_blendshapes)
                     raw_rotation = compute_head_pose(
                         landmarks,
                         frame_shape=(h, w),
                         matrix=matrix,
                         pitch_offset_deg=18.0,
                     )
+                    vrm_shapes = map_mediapipe_to_vrm(mp_blendshapes, landmarks=landmarks, pitch=raw_rotation["pitch"])
+                    vrc = map_mediapipe_to_vrc(mp_blendshapes)
                     raw_gaze = compute_iris_gaze(landmarks, mp_blendshapes=mp_blendshapes)
 
                     # Check if eyes are blinking or closing

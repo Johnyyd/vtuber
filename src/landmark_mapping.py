@@ -383,6 +383,7 @@ def compute_iris_gaze(
 def map_mediapipe_to_vrm(
     mp_blendshapes: Dict[str, float],
     landmarks: Optional[Dict[str, Tuple[float, float, float]]] = None,
+    pitch: float = 0.0,
 ) -> Dict[str, float]:
     """
     Map MediaPipe ARKit blendshapes & dense 3D biomechanical landmarks to VRM 0.x standard blendshapes.
@@ -395,18 +396,24 @@ def map_mediapipe_to_vrm(
 
     # 1. Mouth / Visemes - High sensitivity speech tracking with head-tilt protection
     jaw = g("jawOpen")
-    # Clean resting deadzone at 0.025: when mouth is closed or head tilts down, jaw_active is 0.0
-    if jaw > 0.025:
-        # Standard speech jawOpen is 0.05 - 0.16. Scale 0.025..0.15 to 0.0..1.0
-        jaw_active = _clamp((jaw - 0.025) / (0.15 - 0.025))
+    
+    # If the user is looking down (pitch > 0), the 2D tracking distances compress 
+    # and artificially inflate jawOpen and MAR. Apply a proportional penalty.
+    tilt_penalty = max(0.0, pitch * 0.15) if pitch > 0 else 0.0
+    jaw = max(0.0, jaw - tilt_penalty)
+
+    # Clean resting deadzone at 0.06: when mouth is closed or head tilts down, jaw_active is 0.0
+    if jaw > 0.06:
+        # Standard speech jawOpen is 0.05 - 0.16. Scale 0.06..0.16 to 0.0..1.0
+        jaw_active = _clamp((jaw - 0.06) / (0.16 - 0.06))
     else:
         jaw_active = 0.0
 
     if landmarks:
-        mar = compute_mar(landmarks)
+        mar = max(0.0, compute_mar(landmarks) - tilt_penalty)
         # Resting MAR is ~0.12 - 0.17. Speech MAR is ~0.19 - 0.32.
-        if mar > 0.18:
-            mar_active = _clamp((mar - 0.18) / (0.32 - 0.18))
+        if mar > 0.26:
+            mar_active = _clamp((mar - 0.26) / (0.38 - 0.26))
         else:
             mar_active = 0.0
         raw_speech = max(jaw_active, mar_active)
@@ -431,10 +438,10 @@ def map_mediapipe_to_vrm(
         return max(0.0, val - deadzone)
 
     # Vowels purely based on lip shapes (removed raw_a dependency from E and I to prevent A suppression)
-    u_val = _dz(pucker, 0.03) * 4.5
-    o_val = _dz(funnel, 0.03) * 4.0 + _dz(raw_a, 0.10) * _dz(pucker, 0.03) * 2.0
-    e_val = _dz(stretch, 0.03) * 4.0
-    i_val = max(_dz(stretch, 0.03) * 3.5, _dz(smile, 0.04) * 3.0)
+    u_val = _dz(pucker, 0.15) * 4.5
+    o_val = _dz(funnel, 0.15) * 4.0 + _dz(raw_a, 0.10) * _dz(pucker, 0.15) * 2.0
+    e_val = _dz(stretch, 0.15) * 4.0
+    i_val = max(_dz(stretch, 0.15) * 3.5, _dz(smile, 0.15) * 3.0)
 
     vrm["u"] = _clamp(u_val)
     vrm["o"] = _clamp(o_val)

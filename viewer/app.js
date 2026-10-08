@@ -427,8 +427,14 @@
     }
 
     // LERP interpolate expressions and blendshapes
-    let topExpression = "Neutral";
-    let maxWeight = 0.0;
+    let topMouth = "Rest";
+    let maxMouthWeight = 0.0;
+    
+    let topEye = "Open";
+    let maxEyeWeight = 0.0;
+    
+    const eyeKeys = ["blink", "blink_l", "blink_r", "joy", "fun", "sorrow"];
+    const mouthKeys = ["a", "i", "u", "e", "o", "joy", "angry", "sorrow", "fun"];
 
     for (const [key, rawTargetVal] of Object.entries(targetMotion.vrm)) {
       const isBlink = (key === "blink" || key === "blink_l" || key === "blink_r");
@@ -436,7 +442,8 @@
       let effectiveTarget = rawTargetVal;
       if (isBlink) {
          if (blinkState === "HOLD" && activeBlinkType === key) {
-           effectiveTarget = Math.max(rawTargetVal, 1.0);
+           const eyeSquint = Math.max(currentMotion.vrm.joy || 0, currentMotion.vrm.fun || 0, currentMotion.vrm.sorrow || 0);
+           effectiveTarget = Math.max(0.0, 1.0 - eyeSquint);
          } else if (blinkState === "COOLDOWN") {
            effectiveTarget = 0.0;
          }
@@ -456,85 +463,71 @@
 
       if (currentVrm) {
         if (currentVrm.blendShapeProxy) {
-          try { currentVrm.blendShapeProxy.setValue(key, currentMotion.vrm[key]); } catch (_) {}
+          // VRM 0.0 expects specific PascalCase enum strings
+          let vrm0Key = key;
+          if (key === "a") vrm0Key = "A";
+          if (key === "i") vrm0Key = "I";
+          if (key === "u") vrm0Key = "U";
+          if (key === "e") vrm0Key = "E";
+          if (key === "o") vrm0Key = "O";
+          if (key === "blink") vrm0Key = "Blink";
+          if (key === "blink_l") vrm0Key = "Blink_L";
+          if (key === "blink_r") vrm0Key = "Blink_R";
+          if (key === "joy") vrm0Key = "Joy";
+          if (key === "angry") vrm0Key = "Angry";
+          if (key === "sorrow") vrm0Key = "Sorrow";
+          if (key === "fun") vrm0Key = "Fun";
+          if (key === "lookup") vrm0Key = "LookUp";
+          if (key === "lookdown") vrm0Key = "LookDown";
+          if (key === "lookleft") vrm0Key = "LookLeft";
+          if (key === "lookright") vrm0Key = "LookRight";
+          if (key === "neutral") vrm0Key = "Neutral";
+          try { currentVrm.blendShapeProxy.setValue(vrm0Key, currentMotion.vrm[key]); } catch (_) {}
         } else if (currentVrm.expressionManager) {
-          try {
-            let vrm1Key = key;
-            if (key === "a") vrm1Key = "aa";
-            if (key === "i") vrm1Key = "ih";
-            if (key === "u") vrm1Key = "ou";
-            if (key === "e") vrm1Key = "ee";
-            if (key === "o") vrm1Key = "oh";
-            if (key === "blink_l") vrm1Key = "blinkLeft";
-            if (key === "blink_r") vrm1Key = "blinkRight";
-            if (key === "joy") vrm1Key = "happy";
-            if (key === "angry") vrm1Key = "angry";
-            if (key === "sorrow") vrm1Key = "sad";
-            if (key === "fun") vrm1Key = "relaxed";
-            currentVrm.expressionManager.setValue(vrm1Key, currentMotion.vrm[key]);
-          } catch (_) {}
+          // VRM 1.0 expects specific expression names
+          let vrm1Key = key;
+          if (key === "a") vrm1Key = "aa";
+          if (key === "i") vrm1Key = "ih";
+          if (key === "u") vrm1Key = "ou";
+          if (key === "e") vrm1Key = "ee";
+          if (key === "o") vrm1Key = "oh";
+          if (key === "blink_l") vrm1Key = "blinkLeft";
+          if (key === "blink_r") vrm1Key = "blinkRight";
+          if (key === "joy") vrm1Key = "happy";
+          if (key === "angry") vrm1Key = "angry";
+          if (key === "sorrow") vrm1Key = "sad";
+          if (key === "fun") vrm1Key = "relaxed";
+          try { currentVrm.expressionManager.setValue(vrm1Key, currentMotion.vrm[key]); } catch (_) {}
         }
       }
 
-      if (key !== "neutral" && currentMotion.vrm[key] > maxWeight) {
-        maxWeight = currentMotion.vrm[key];
-        topExpression = key.toUpperCase();
+      if (key !== "neutral") {
+        if (eyeKeys.includes(key) && currentMotion.vrm[key] > maxEyeWeight) {
+          maxEyeWeight = currentMotion.vrm[key];
+          topEye = key.toUpperCase();
+        }
+        if (mouthKeys.includes(key) && currentMotion.vrm[key] > maxMouthWeight) {
+          maxMouthWeight = currentMotion.vrm[key];
+          topMouth = key.toUpperCase();
+        }
       }
     }
 
-    // Immediately flush blendShapeProxy values to mesh morph targets
     // Immediately flush blendShapeProxy values to mesh morph targets
     if (currentVrm) {
       if (currentVrm.blendShapeProxy) currentVrm.blendShapeProxy.update();
       if (currentVrm.expressionManager) currentVrm.expressionManager.update();
-    } else if (morphMeshes.length > 0) {
-      // Fallback for raw GLTF/GLB models that lack the VRM extension.
-      // Uses safe suffix matching.
-      for (const mesh of morphMeshes) {
-        if (!mesh.morphTargetInfluences || !mesh.morphTargetDictionary) continue;
-        const dict = mesh.morphTargetDictionary;
-        const infl = mesh.morphTargetInfluences;
-        const keys = Object.keys(dict);
-        
-        const setMorph = (baseNames, value) => {
-           let applied = false;
-           for (const base of baseNames) {
-              const b = base.toLowerCase();
-              for (const k of keys) {
-                 const kl = k.toLowerCase();
-                 // Exclude cheeks and brows to prevent weird facial distortions on raw gltfs
-                 if (kl.includes("cheek") || kl.includes("brow") || kl.includes("brw")) continue;
-                 if (kl === b || kl.endsWith(`_${b}`) || kl.endsWith(`.${b}`)) {
-                    infl[dict[k]] = value;
-                    applied = true;
-                 }
-              }
-              if (applied) break;
-           }
-        };
-
-        const bl = Math.max(currentMotion.vrm.blink, currentMotion.vrm.blink_l);
-        const br = Math.max(currentMotion.vrm.blink, currentMotion.vrm.blink_r);
-        
-        setMorph(["blink_l", "blinkleft", "close_l"], bl);
-        setMorph(["blink_r", "blinkright", "close_r"], br);
-        
-        setMorph(["a", "aa", "vowel_a"], currentMotion.vrm.a);
-        setMorph(["i", "ih", "vowel_i"], currentMotion.vrm.i);
-        setMorph(["u", "ou", "vowel_u"], currentMotion.vrm.u);
-        setMorph(["e", "ee", "vowel_e"], currentMotion.vrm.e);
-        setMorph(["o", "oh", "vowel_o"], currentMotion.vrm.o);
-        
-        setMorph(["joy", "happy", "smile"], currentMotion.vrm.joy);
-        setMorph(["fun", "relaxed"], currentMotion.vrm.fun);
-        setMorph(["angry"], currentMotion.vrm.angry);
-        setMorph(["sorrow", "sad"], currentMotion.vrm.sorrow);
-      }
     }
+    // No fallback needed for VRM models, expressionManager handles it natively.
+    // Raw GLTF fallback is removed for simplicity, as this project focuses on VRM.
 
-    const expEl = document.getElementById("hud-expression");
-    if (expEl) {
-      expEl.innerText = maxWeight > 0.2 ? topExpression : "Neutral";
+    const hudEye = document.getElementById("hud-eye");
+    const hudMouth = document.getElementById("hud-mouth");
+    if (hudEye) {
+      hudEye.innerText = "Eye: " + (maxEyeWeight > 0.15 ? topEye : "Open");
+    }
+    if (hudMouth) {
+      hudMouth.innerText = "Mouth: " + (maxMouthWeight > 0.15 ? topMouth : "Rest");
     }
 
     // Update VRM internal components (spring bones, physics, and blendshapes)

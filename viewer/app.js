@@ -70,7 +70,7 @@
   let lastMotionTimestamp = 0;
   let frameCount = 0;
   let lastFpsTime = performance.now();
-  
+
   // Blink State Machine
   let blinkState = "IDLE"; // IDLE, HOLD, COOLDOWN
   let blinkTimer = 0;
@@ -375,8 +375,8 @@
       }
     } else if (blinkState === "HOLD") {
       if (physicalBlink) {
-         // Extend the hold if they are still physically blinking
-         blinkTimer = Math.max(blinkTimer, now + 100);
+        // Extend the hold if they are still physically blinking
+        blinkTimer = Math.max(blinkTimer, now + 100);
       }
       if (now >= blinkTimer) {
         blinkState = "COOLDOWN";
@@ -429,10 +429,10 @@
     // LERP interpolate expressions and blendshapes
     let topMouth = "Rest";
     let maxMouthWeight = 0.0;
-    
+
     let topEye = "Open";
     let maxEyeWeight = 0.0;
-    
+
     const eyeKeys = ["blink", "blink_l", "blink_r", "joy", "fun", "sorrow", "angry"];
     const mouthKeys = ["a", "i", "u", "e", "o", "joy", "angry", "sorrow", "fun"];
 
@@ -441,12 +441,12 @@
 
       let effectiveTarget = rawTargetVal;
       if (isBlink) {
-         if (blinkState === "HOLD" && activeBlinkType === key) {
-           const eyeSquint = Math.max(currentMotion.vrm.joy || 0, currentMotion.vrm.fun || 0, currentMotion.vrm.sorrow || 0);
-           effectiveTarget = Math.max(0.0, 1.0 - eyeSquint);
-         } else if (blinkState === "COOLDOWN") {
-           effectiveTarget = 0.0;
-         }
+        if (blinkState === "HOLD" && activeBlinkType === key) {
+          const eyeSquint = Math.max(currentMotion.vrm.joy || 0, currentMotion.vrm.fun || 0, currentMotion.vrm.sorrow || 0);
+          effectiveTarget = Math.max(0.0, 1.0 - eyeSquint);
+        } else if (blinkState === "COOLDOWN") {
+          effectiveTarget = 0.0;
+        }
       }
 
       // Asymmetric LERP: snap close instantly (0.95), open smoothly (0.35)
@@ -482,7 +482,7 @@
           if (key === "lookleft") vrm0Key = "LookLeft";
           if (key === "lookright") vrm0Key = "LookRight";
           if (key === "neutral") vrm0Key = "Neutral";
-          try { currentVrm.blendShapeProxy.setValue(vrm0Key, currentMotion.vrm[key]); } catch (_) {}
+          try { currentVrm.blendShapeProxy.setValue(vrm0Key, currentMotion.vrm[key]); } catch (_) { }
         } else if (currentVrm.expressionManager) {
           // VRM 1.0 expects specific expression names
           let vrm1Key = key;
@@ -497,7 +497,7 @@
           if (key === "angry") vrm1Key = "angry";
           if (key === "sorrow") vrm1Key = "sad";
           if (key === "fun") vrm1Key = "relaxed";
-          try { currentVrm.expressionManager.setValue(vrm1Key, currentMotion.vrm[key]); } catch (_) {}
+          try { currentVrm.expressionManager.setValue(vrm1Key, currentMotion.vrm[key]); } catch (_) { }
         }
       }
 

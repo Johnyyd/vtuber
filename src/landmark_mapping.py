@@ -512,9 +512,13 @@ def map_mediapipe_to_vrm(
         vrm["blink_r"] = 0.0
 
     # 3. Facial Expressions
-    # Intentional smile threshold: resting/speech lip curves (< 0.20) will not activate Joy.
-    if smile > 0.20:
-        base_joy = _clamp((smile - 0.20) / (0.55 - 0.20))
+    # Highly responsive smile detection with clean resting deadzone at 0.08
+    # Blends peak smile and mean smile for instant, reliable detection of subtle or asymmetric smiles
+    peak_smile = max(g("mouthSmileLeft"), g("mouthSmileRight"))
+    effective_smile = peak_smile * 0.6 + smile * 0.4
+
+    if effective_smile > 0.08:
+        base_joy = _clamp((effective_smile - 0.08) * 2.5)
     else:
         base_joy = 0.0
     vrm["joy"] = _clamp(base_joy)

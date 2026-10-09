@@ -677,11 +677,15 @@
       if (currentVrm.expressionManager) currentVrm.expressionManager.update();
 
       // If user is speaking while smiling, preserve happy eye squint via EYE_Joy
-      if (mouthMesh && mouthMesh.morphTargetDictionary && currentMotion.vrm.joy > 0.05 && currentMotion.vrm.a > 0.05) {
+      if (mouthMesh && mouthMesh.morphTargetDictionary) {
         const eyeJoyIdx = mouthMesh.morphTargetDictionary["Face.M_F00_000_00_Fcl_EYE_Joy"];
         if (eyeJoyIdx !== undefined && mouthMesh.morphTargetInfluences) {
-          const eyeSmileWeight = currentMotion.vrm.joy * Math.min(1.0, currentMotion.vrm.a * 2.0);
-          mouthMesh.morphTargetInfluences[eyeJoyIdx] = eyeSmileWeight;
+          if (currentMotion.vrm.joy > 0.05 && currentMotion.vrm.a > 0.05) {
+            const eyeSmileWeight = currentMotion.vrm.joy * Math.min(1.0, currentMotion.vrm.a * 2.0);
+            mouthMesh.morphTargetInfluences[eyeJoyIdx] = eyeSmileWeight;
+          } else {
+            mouthMesh.morphTargetInfluences[eyeJoyIdx] = 0.0;
+          }
         }
       }
     }

@@ -52,6 +52,24 @@ bash run.sh --camera-id 0 --width 1280 --height 720
 
 ---
 
+## 📦 Đóng gói thành file .exe (Windows Standalone)
+
+Bạn có thể đóng gói toàn bộ ứng dụng thành 1 file chạy `.exe` độc lập mà máy tính khác không cần cài đặt Python:
+
+1. **Cách nhanh nhất:**
+   - Nhấp đúp chuột vào file [build_exe.bat](file:///e:/GitHub/vtuber/build_exe.bat).
+   - Script sẽ tự động cài đặt `PyInstaller`, thu thập tài nguyên (3D assets, Three.js, MediaPipe) và đóng gói.
+
+2. **Cách chạy dòng lệnh thủ công:**
+   ```bash
+   pip install pyinstaller
+   pyinstaller --clean vtuber.spec
+   ```
+
+Sau khi hoàn tất, file chạy sẽ nằm tại thư mục `dist/VTuberAvatar.exe` kèm file [config.txt](file:///e:/GitHub/vtuber/config.txt) để tùy chỉnh thông số.
+
+---
+
 ## 📸 Pro-Tip: Using Your Phone as a Webcam
 
 For the absolute best tracking quality (especially if you wear glasses), it is highly recommended to use your phone's camera via **DroidCam** or **Iriun Webcam**.

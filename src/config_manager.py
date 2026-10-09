@@ -6,10 +6,16 @@ import os
 import configparser
 from typing import Dict, Any
 
-# Root repository directory path
-_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-_REPO_ROOT = os.path.dirname(_CURRENT_DIR)
-DEFAULT_CONFIG_PATH = os.path.join(_REPO_ROOT, "config.txt")
+import sys
+
+# Root repository or executable directory path
+if getattr(sys, "frozen", False):
+    _APP_ROOT = os.path.dirname(sys.executable)
+else:
+    _CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+    _APP_ROOT = os.path.dirname(_CURRENT_DIR)
+
+DEFAULT_CONFIG_PATH = os.path.join(_APP_ROOT, "config.txt")
 
 # Canonical default parameter values (calibrated for natural expressions, fuller lips & eyeglasses)
 DEFAULT_CONFIG: Dict[str, Any] = {

@@ -297,9 +297,15 @@ class VTuberWindow(QMainWindow):
         self.web_view.titleChanged.connect(self.on_title_changed)
 
         # Load local viewer HTML file
-        viewer_html_path = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "viewer", "index.html")
-        )
+        if getattr(sys, "frozen", False):
+            _bundle_dir = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+            _exe_dir = os.path.dirname(sys.executable)
+            _cand_external = os.path.join(_exe_dir, "viewer", "index.html")
+            viewer_html_path = _cand_external if os.path.exists(_cand_external) else os.path.join(_bundle_dir, "viewer", "index.html")
+        else:
+            viewer_html_path = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "..", "viewer", "index.html")
+            )
         self.web_view.load(QUrl.fromLocalFile(viewer_html_path))
 
         # Start tracking thread

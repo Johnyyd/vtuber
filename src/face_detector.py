@@ -6,6 +6,7 @@ this module wraps the new FaceLandmarker task.
 """
 
 import os
+import sys
 import urllib.request
 
 import mediapipe as mp
@@ -13,7 +14,15 @@ from mediapipe.tasks import python as mp_python
 from mediapipe.tasks.python import vision
 
 MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
-MODEL_DIR = os.path.join(os.path.dirname(__file__), "..", "models")
+
+if getattr(sys, "frozen", False):
+    _bundle_dir = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+    _exe_dir = os.path.dirname(sys.executable)
+    _cand = os.path.join(_exe_dir, "models")
+    MODEL_DIR = _cand if os.path.exists(_cand) else os.path.join(_bundle_dir, "models")
+else:
+    MODEL_DIR = os.path.join(os.path.dirname(__file__), "..", "models")
+
 MODEL_PATH = os.path.join(MODEL_DIR, "face_landmarker.task")
 
 

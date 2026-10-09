@@ -438,7 +438,8 @@ def map_mediapipe_to_vrm(
         return max(0.0, val - deadzone)
 
     # Vowels purely based on lip shapes (stretch for E/I, pucker/funnel for U/O)
-    u_val = _dz(pucker, 0.15) * 4.5
+    # VRoid models pinch the mouth inwards across the center line if U > 0.65; cap at 0.60 for a natural anime U
+    u_val = min(0.60, _dz(pucker, 0.12) * 2.2)
     o_val = _dz(funnel, 0.15) * 4.0 + _dz(raw_a, 0.10) * _dz(pucker, 0.15) * 2.0
     e_val = _dz(stretch, 0.15) * 4.0
     i_val = _dz(stretch, 0.15) * 3.5

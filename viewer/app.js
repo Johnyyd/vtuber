@@ -629,6 +629,10 @@
           if (key === "neutral") vrm0Key = "Neutral";
 
           let vrm0Val = currentMotion.vrm[key];
+          // VRoid models' MTH_U target pinches mouth vertices across the center line if > 0.60
+          if (vrm0Key === "U") {
+            vrm0Val = Math.min(0.60, vrm0Val);
+          }
           // When mouth is opening for speech (a > 0.05), attenuate Joy so ALL_Joy doesn't lock the mouth shut
           if (vrm0Key === "Joy" && currentMotion.vrm.a > 0.05) {
             const speechAtten = Math.max(0.0, 1.0 - currentMotion.vrm.a * 1.8);
@@ -651,6 +655,9 @@
           if (key === "fun") vrm1Key = "relaxed";
 
           let vrm1Val = currentMotion.vrm[key];
+          if (vrm1Key === "ou") {
+            vrm1Val = Math.min(0.60, vrm1Val);
+          }
           if (vrm1Key === "happy" && currentMotion.vrm.a > 0.05) {
             const speechAtten = Math.max(0.0, 1.0 - currentMotion.vrm.a * 1.8);
             vrm1Val *= speechAtten;

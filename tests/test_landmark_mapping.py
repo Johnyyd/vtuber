@@ -296,6 +296,24 @@ class TestLandmarkMapping(unittest.TestCase):
         # Mouth open driven by MAR even when jawOpen is 0.0!
         self.assertGreater(vrm["a"], 0.8, "Physical MAR must drive mouth opening")
 
+    def test_vowel_u_safe_capping_prevents_corner_collapse(self):
+        try:
+            from landmark_mapping import map_mediapipe_to_vrm
+        except ImportError:
+            from src.landmark_mapping import map_mediapipe_to_vrm
+
+        # Strong mouth pucker
+        mp_pucker = {"mouthPucker": 0.85}
+        vrm = map_mediapipe_to_vrm(mp_pucker)
+        self.assertGreater(vrm["u"], 0.4, "U vowel should activate on pucker")
+        self.assertLessEqual(vrm["u"], 0.60, "U vowel must be capped <= 0.60 to prevent mouth corner crossover")
+
+        # Resting mouth (pucker < 0.12)
+        mp_rest = {"mouthPucker": 0.05}
+        vrm_rest = map_mediapipe_to_vrm(mp_rest)
+        self.assertEqual(vrm_rest["u"], 0.0, "U vowel must be 0.0 at rest")
+
 
 if __name__ == "__main__":
     unittest.main()
+

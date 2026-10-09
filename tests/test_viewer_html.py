@@ -24,6 +24,10 @@ class TestViewerHtml(unittest.TestCase):
         self.assertIn("vrc_v_aa", content)
         self.assertIn("mixamorig:Head", content)
         self.assertIn("mixamorig:Neck", content)
+        self.assertIn("leftUpperArmBone", content)
+        self.assertIn("rightUpperArmBone", content)
+        self.assertIn("leftLowerArmBone", content)
+        self.assertIn("rightLowerArmBone", content)
 
     def test_html_contains_hud_and_size_controls(self):
         with open("viewer/index.html", "r", encoding="utf-8") as f:

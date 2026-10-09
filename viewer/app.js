@@ -10,6 +10,10 @@
   let neckBone = null;
   let eyeLeftBone = null;
   let eyeRightBone = null;
+  let leftUpperArmBone = null;
+  let rightUpperArmBone = null;
+  let leftLowerArmBone = null;
+  let rightLowerArmBone = null;
   const clock = new THREE.Clock();
 
   const morphMeshes = [];
@@ -359,6 +363,18 @@
         eyeRightBone = currentVrm.humanoid.getBoneNode("rightEye") ||
           (window.THREE_VRM && window.THREE_VRM.VRMSchema &&
             currentVrm.humanoid.getBoneNode(window.THREE_VRM.VRMSchema.HumanoidBoneName.RightEye));
+        leftUpperArmBone = currentVrm.humanoid.getBoneNode("leftUpperArm") ||
+          (window.THREE_VRM && window.THREE_VRM.VRMSchema &&
+            currentVrm.humanoid.getBoneNode(window.THREE_VRM.VRMSchema.HumanoidBoneName.LeftUpperArm));
+        rightUpperArmBone = currentVrm.humanoid.getBoneNode("rightUpperArm") ||
+          (window.THREE_VRM && window.THREE_VRM.VRMSchema &&
+            currentVrm.humanoid.getBoneNode(window.THREE_VRM.VRMSchema.HumanoidBoneName.RightUpperArm));
+        leftLowerArmBone = currentVrm.humanoid.getBoneNode("leftLowerArm") ||
+          (window.THREE_VRM && window.THREE_VRM.VRMSchema &&
+            currentVrm.humanoid.getBoneNode(window.THREE_VRM.VRMSchema.HumanoidBoneName.LeftLowerArm));
+        rightLowerArmBone = currentVrm.humanoid.getBoneNode("rightLowerArm") ||
+          (window.THREE_VRM && window.THREE_VRM.VRMSchema &&
+            currentVrm.humanoid.getBoneNode(window.THREE_VRM.VRMSchema.HumanoidBoneName.RightLowerArm));
       } catch (e) {
         console.warn("[VTuber] Humanoid bone lookup notice:", e);
       }
@@ -382,6 +398,18 @@
       }
       if (!eyeRightBone && (obj.name.includes("Eye_R") || obj.name.includes("rightEye") || obj.name.includes("Eye.R"))) {
         eyeRightBone = obj;
+      }
+      if (!leftUpperArmBone && (obj.name === "J_Bip_L_UpperArm" || obj.name.includes("LeftUpperArm") || obj.name.includes("leftUpperArm"))) {
+        leftUpperArmBone = obj;
+      }
+      if (!rightUpperArmBone && (obj.name === "J_Bip_R_UpperArm" || obj.name.includes("RightUpperArm") || obj.name.includes("rightUpperArm"))) {
+        rightUpperArmBone = obj;
+      }
+      if (!leftLowerArmBone && (obj.name === "J_Bip_L_LowerArm" || obj.name.includes("LeftLowerArm") || obj.name.includes("leftLowerArm"))) {
+        leftLowerArmBone = obj;
+      }
+      if (!rightLowerArmBone && (obj.name === "J_Bip_R_LowerArm" || obj.name.includes("RightLowerArm") || obj.name.includes("rightLowerArm"))) {
+        rightLowerArmBone = obj;
       }
     });
 
@@ -505,6 +533,20 @@
     }
     if (headBone) {
       headBone.rotation.set(p * 0.7, y * 0.7, r * 0.7);
+    }
+
+    // Apply natural lowered resting pose for arms (hands rested comfortably in front of hips)
+    if (leftUpperArmBone) {
+      leftUpperArmBone.rotation.set(-0.12, 0.0, 1.25);
+    }
+    if (rightUpperArmBone) {
+      rightUpperArmBone.rotation.set(-0.12, 0.0, -1.25);
+    }
+    if (leftLowerArmBone) {
+      leftLowerArmBone.rotation.set(0.0, 0.20, 0.15);
+    }
+    if (rightLowerArmBone) {
+      rightLowerArmBone.rotation.set(0.0, -0.20, -0.15);
     }
 
     // Blink State Machine (Runs every frame)

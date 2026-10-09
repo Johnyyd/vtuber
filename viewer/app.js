@@ -601,8 +601,8 @@
       currentMotion.vrm[key] +=
         (effectiveTarget - currentMotion.vrm[key]) * lerpFactor;
 
-      // Clean snap to 0.0 when target is 0 and residual value is tiny, preventing eyelid droop
-      if (isBlink && effectiveTarget === 0.0 && currentMotion.vrm[key] < 0.02) {
+      // Clean snap to 0.0 when target is 0 and residual value is tiny, preventing eyelid droop or stuck expressions
+      if (effectiveTarget === 0.0 && currentMotion.vrm[key] < 0.015) {
         currentMotion.vrm[key] = 0.0;
       }
 
@@ -627,7 +627,14 @@
           if (key === "lookleft") vrm0Key = "LookLeft";
           if (key === "lookright") vrm0Key = "LookRight";
           if (key === "neutral") vrm0Key = "Neutral";
-          try { currentVrm.blendShapeProxy.setValue(vrm0Key, currentMotion.vrm[key]); } catch (_) { }
+
+          let vrm0Val = currentMotion.vrm[key];
+          // When mouth is opening for speech (a > 0.05), attenuate Joy so ALL_Joy doesn't lock the mouth shut
+          if (vrm0Key === "Joy" && currentMotion.vrm.a > 0.05) {
+            const speechAtten = Math.max(0.0, 1.0 - currentMotion.vrm.a * 1.8);
+            vrm0Val *= speechAtten;
+          }
+          try { currentVrm.blendShapeProxy.setValue(vrm0Key, vrm0Val); } catch (_) { }
         } else if (currentVrm.expressionManager) {
           // VRM 1.0 expects specific expression names
           let vrm1Key = key;
@@ -642,7 +649,13 @@
           if (key === "angry") vrm1Key = "angry";
           if (key === "sorrow") vrm1Key = "sad";
           if (key === "fun") vrm1Key = "relaxed";
-          try { currentVrm.expressionManager.setValue(vrm1Key, currentMotion.vrm[key]); } catch (_) { }
+
+          let vrm1Val = currentMotion.vrm[key];
+          if (vrm1Key === "happy" && currentMotion.vrm.a > 0.05) {
+            const speechAtten = Math.max(0.0, 1.0 - currentMotion.vrm.a * 1.8);
+            vrm1Val *= speechAtten;
+          }
+          try { currentVrm.expressionManager.setValue(vrm1Key, vrm1Val); } catch (_) { }
         }
       }
 
@@ -662,6 +675,15 @@
     if (currentVrm) {
       if (currentVrm.blendShapeProxy) currentVrm.blendShapeProxy.update();
       if (currentVrm.expressionManager) currentVrm.expressionManager.update();
+
+      // If user is speaking while smiling, preserve happy eye squint via EYE_Joy
+      if (mouthMesh && mouthMesh.morphTargetDictionary && currentMotion.vrm.joy > 0.05 && currentMotion.vrm.a > 0.05) {
+        const eyeJoyIdx = mouthMesh.morphTargetDictionary["Face.M_F00_000_00_Fcl_EYE_Joy"];
+        if (eyeJoyIdx !== undefined && mouthMesh.morphTargetInfluences) {
+          const eyeSmileWeight = currentMotion.vrm.joy * Math.min(1.0, currentMotion.vrm.a * 2.0);
+          mouthMesh.morphTargetInfluences[eyeJoyIdx] = eyeSmileWeight;
+        }
+      }
     }
     // No fallback needed for VRM models, expressionManager handles it natively.
     // Raw GLTF fallback is removed for simplicity, as this project focuses on VRM.

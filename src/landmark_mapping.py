@@ -437,20 +437,20 @@ def map_mediapipe_to_vrm(
     def _dz(val: float, deadzone: float = 0.02) -> float:
         return max(0.0, val - deadzone)
 
-    # Vowels purely based on lip shapes (removed raw_a dependency from E and I to prevent A suppression)
+    # Vowels purely based on lip shapes (stretch for E/I, pucker/funnel for U/O)
     u_val = _dz(pucker, 0.15) * 4.5
     o_val = _dz(funnel, 0.15) * 4.0 + _dz(raw_a, 0.10) * _dz(pucker, 0.15) * 2.0
     e_val = _dz(stretch, 0.15) * 4.0
-    i_val = max(_dz(stretch, 0.15) * 3.5, _dz(smile, 0.15) * 3.0)
+    i_val = _dz(stretch, 0.15) * 3.5
 
     vrm["u"] = _clamp(u_val)
     vrm["o"] = _clamp(o_val)
     vrm["e"] = _clamp(e_val)
     vrm["i"] = _clamp(i_val)
 
-    # A is jaw opening, gently suppressed by tight lip shapes (u, i, e)
-    a_suppression = max(vrm["u"] * 0.8, vrm["i"] * 0.7, vrm["e"] * 0.7)
-    vrm["a"] = _clamp(_dz(raw_a, 0.02) * 1.5 - a_suppression)
+    # A is jaw opening, gently scaled down by heavy lip pucker (u)
+    u_penalty = vrm["u"] * 0.4
+    vrm["a"] = _clamp(_dz(raw_a, 0.02) * 1.5 * (1.0 - u_penalty))
 
     vrm["neutral"] = _clamp(1.0 - (vrm["a"] + vrm["i"] + vrm["u"] + vrm["e"] + vrm["o"]))
 
@@ -512,16 +512,12 @@ def map_mediapipe_to_vrm(
         vrm["blink_r"] = 0.0
 
     # 3. Facial Expressions
-    # Fade joy ONLY if jaw is very wide open (A > 0.5), to allow smiling while talking normally.
-    base_joy = (smile - 0.10) * 1.8 if smile > 0.10 else 0.0
-    vrm["joy"] = _clamp(base_joy - vrm["a"] * 0.8)
-    
-    # Prevent double-application of blink + joy (which causes eyelashes to clip 200% into cheeks).
-    # Since Joy already closes the eyes in most VRM models, we suppress physical blinks proportionally to joy.
-    if vrm["joy"] > 0.0:
-        vrm["blink"] = _clamp(vrm["blink"] - vrm["joy"])
-        vrm["blink_l"] = _clamp(vrm["blink_l"] - vrm["joy"])
-        vrm["blink_r"] = _clamp(vrm["blink_r"] - vrm["joy"])
+    # Intentional smile threshold: resting/speech lip curves (< 0.20) will not activate Joy.
+    if smile > 0.20:
+        base_joy = _clamp((smile - 0.20) / (0.55 - 0.20))
+    else:
+        base_joy = 0.0
+    vrm["joy"] = _clamp(base_joy)
     vrm["angry"] = _clamp((g("browDownLeft") + g("browDownRight")) * 1.5)
     vrm["sorrow"] = _clamp(g("browInnerUp") * 1.2)
     vrm["fun"] = _clamp((g("eyeWideLeft") + g("eyeWideRight")) * 0.5 + vrm["a"] * 0.3)

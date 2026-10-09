@@ -341,6 +341,51 @@ class TestLandmarkMapping(unittest.TestCase):
         self.assertGreater(vrm_sad["sorrow"], 0.5, "Genuine mouth frown must trigger sorrow")
         self.assertEqual(vrm_sad["surprised"], 0.0, "Sad face must not trigger surprised")
 
+    def test_thick_lips_resting_mouth_does_not_open(self):
+        try:
+            from landmark_mapping import map_mediapipe_to_vrm
+        except ImportError:
+            from src.landmark_mapping import map_mediapipe_to_vrm
+
+        # Thick lips resting baseline: jawOpen is ~0.07-0.08, smile is ~0.08
+        mp_resting_thick = {
+            "jawOpen": 0.08,
+            "mouthSmileLeft": 0.08,
+            "mouthSmileRight": 0.08,
+        }
+        cfg = {"mouth_open_deadzone": 0.09, "smile_deadzone": 0.10}
+        vrm = map_mediapipe_to_vrm(mp_resting_thick, config=cfg)
+        self.assertEqual(vrm["a"], 0.0, "Resting thick lips must not trigger mouth open fluttering")
+        self.assertEqual(vrm["joy"], 0.0, "Resting lip corners must not trigger false smile")
+
+        # When speaking / opening mouth
+        mp_speaking = {"jawOpen": 0.35}
+        vrm_speaking = map_mediapipe_to_vrm(mp_speaking, config=cfg)
+        self.assertGreater(vrm_speaking["a"], 0.5, "Speaking mouth must open smoothly")
+
+    def test_glasses_shadow_does_not_cause_eyelid_droop(self):
+        try:
+            from landmark_mapping import map_mediapipe_to_vrm
+        except ImportError:
+            from src.landmark_mapping import map_mediapipe_to_vrm
+
+        # Eyeglasses frame noise baseline: ~0.12 blink score when eyes are wide open
+        mp_glasses_noise = {
+            "eyeBlinkLeft": 0.12,
+            "eyeBlinkRight": 0.12,
+        }
+        cfg = {"blink_deadzone": 0.13, "blink_snap_thresh": 0.25}
+        vrm = map_mediapipe_to_vrm(mp_glasses_noise, config=cfg)
+        self.assertEqual(vrm["blink"], 0.0, "Eyeglasses shadow noise must be filtered out")
+
+        # Deliberate blink
+        mp_blink = {
+            "eyeBlinkLeft": 0.65,
+            "eyeBlinkRight": 0.65,
+        }
+        vrm_blink = map_mediapipe_to_vrm(mp_blink, config=cfg)
+        self.assertEqual(vrm_blink["blink"], 1.0, "Deliberate blink must snap cleanly")
+
 
 if __name__ == "__main__":
     unittest.main()

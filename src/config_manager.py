@@ -11,26 +11,26 @@ _CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.dirname(_CURRENT_DIR)
 DEFAULT_CONFIG_PATH = os.path.join(_REPO_ROOT, "config.txt")
 
-# Canonical default parameter values
+# Canonical default parameter values (calibrated for natural expressions, fuller lips & eyeglasses)
 DEFAULT_CONFIG: Dict[str, Any] = {
     # [GENERAL]
     "camera_id": 0,
-    "window_width": 1024,
-    "window_height": 768,
+    "window_width": 800,
+    "window_height": 600,
     "show_launcher": True,
 
     # [TRACKING_SENSITIVITY]
-    "smile_deadzone": 0.08,
-    "smile_gain": 2.5,
-    "mouth_open_deadzone": 0.06,
-    "mouth_open_gain": 1.5,
-    "u_max_clamp": 0.60,
-    "blink_deadzone": 0.10,
-    "blink_snap_thresh": 0.22,
-    "brow_raise_deadzone": 0.08,
+    "smile_deadzone": 0.10,
+    "smile_gain": 2.8,
+    "mouth_open_deadzone": 0.09,
+    "mouth_open_gain": 1.6,
+    "u_max_clamp": 0.58,
+    "blink_deadzone": 0.13,
+    "blink_snap_thresh": 0.25,
+    "brow_raise_deadzone": 0.10,
     "brow_raise_gain": 2.2,
-    "frown_deadzone": 0.08,
-    "frown_gain": 2.0,
+    "frown_deadzone": 0.10,
+    "frown_gain": 2.2,
 
     # [CAMERA_AND_FILTER]
     "pitch_offset_deg": 18.0,

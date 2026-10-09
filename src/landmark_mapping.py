@@ -315,7 +315,7 @@ def compute_iris_gaze(
     if mp_blendshapes:
         bl_l = mp_blendshapes.get("eyeBlinkLeft", 0.0)
         bl_r = mp_blendshapes.get("eyeBlinkRight", 0.0)
-        if bl_l >= 0.15 or bl_r >= 0.15:
+        if bl_l >= 0.35 and bl_r >= 0.35:
             return {"x": 0.0, "y": 0.0}
 
     landmarks = landmarks or {}
@@ -427,9 +427,10 @@ def map_mediapipe_to_vrm(
 
     if landmarks:
         mar = max(0.0, compute_mar(landmarks) - tilt_penalty)
-        # Resting MAR is ~0.12 - 0.17. Speech MAR is ~0.19 - 0.32.
-        if mar > 0.26:
-            mar_active = _clamp((mar - 0.26) / (0.38 - 0.26))
+        # Adapt MAR baseline for fuller/thicker lips based on mouth_open_deadzone
+        mar_base = 0.26 + max(0.0, (mouth_dz - 0.06) * 1.5)
+        if mar > mar_base:
+            mar_active = _clamp((mar - mar_base) / max(0.08, 0.38 - mar_base))
         else:
             mar_active = 0.0
         raw_speech = max(jaw_active, mar_active)
@@ -487,13 +488,13 @@ def map_mediapipe_to_vrm(
         # 1. Physical eyelid contact -> snap closure
         if ear_bl_l >= 0.5:
             bl_l = max(bl_l, ear_bl_l)
-        elif ear_bl_l == 0.0 and raw_l < 0.25:
-            # 2. Resting wide open eyes (and raw is noise < 0.25) -> suppress false droop
+        elif ear_bl_l == 0.0 and raw_l < 0.30:
+            # 2. Resting wide open eyes (and raw is noise < 0.30, common with eyeglasses) -> suppress false droop
             bl_l = 0.0
 
         if ear_bl_r >= 0.5:
             bl_r = max(bl_r, ear_bl_r)
-        elif ear_bl_r == 0.0 and raw_r < 0.25:
+        elif ear_bl_r == 0.0 and raw_r < 0.30:
             bl_r = 0.0
 
     # Distinguish natural synchronized blink vs deliberate single-eye wink:
@@ -502,10 +503,10 @@ def map_mediapipe_to_vrm(
 
     # A single-eye wink requires:
     # 1. The winking eye is firmly closed (bl >= 0.40)
-    # 2. The other eye is genuinely resting/open (bl_other < 0.20 and raw_other < 0.20)
+    # 2. The other eye is genuinely resting/open (bl_other < 0.20 and raw_other < 0.28)
     # 3. The difference between eyes is distinct (diff >= 0.25)
-    is_wink_l = bl_l >= 0.40 and bl_r < 0.20 and raw_r < 0.20 and diff_l >= 0.25
-    is_wink_r = bl_r >= 0.40 and bl_l < 0.20 and raw_l < 0.20 and diff_r >= 0.25
+    is_wink_l = bl_l >= 0.40 and bl_r < 0.20 and raw_r < 0.28 and diff_l >= 0.25
+    is_wink_r = bl_r >= 0.40 and bl_l < 0.20 and raw_l < 0.28 and diff_r >= 0.25
 
     if is_wink_l:
         # Deliberate left eye wink -> full 1.0 closure
@@ -548,8 +549,8 @@ def map_mediapipe_to_vrm(
     eye_wide = (g("eyeWideLeft") + g("eyeWideRight")) * 0.5
     frown = (g("mouthFrownLeft") + g("mouthFrownRight")) * 0.5
 
-    if (brow_raise > brow_dz or eye_wide > 0.15) and frown < 0.12:
-        vrm["surprised"] = _clamp(max((brow_raise - brow_dz) * brow_gain, (eye_wide - 0.15) * 2.5))
+    if (brow_raise > brow_dz or eye_wide > 0.18) and frown < 0.12:
+        vrm["surprised"] = _clamp(max((brow_raise - brow_dz) * brow_gain, (eye_wide - 0.18) * 2.5))
     else:
         vrm["surprised"] = 0.0
 

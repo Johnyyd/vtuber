@@ -428,18 +428,18 @@ class ConfigLauncherDialog(QDialog):
 
         self.chk_show_launcher.setChecked(bool(cfg.get("show_launcher", True)))
 
-        self.spin_smile_dz.setValue(float(cfg.get("smile_deadzone", 0.08)))
-        self.spin_smile_gain.setValue(float(cfg.get("smile_gain", 2.5)))
-        self.spin_mouth_dz.setValue(float(cfg.get("mouth_open_deadzone", 0.06)))
-        self.spin_mouth_gain.setValue(float(cfg.get("mouth_open_gain", 1.5)))
-        self.spin_u_max.setValue(float(cfg.get("u_max_clamp", 0.60)))
+        self.spin_smile_dz.setValue(float(cfg.get("smile_deadzone", 0.10)))
+        self.spin_smile_gain.setValue(float(cfg.get("smile_gain", 2.8)))
+        self.spin_mouth_dz.setValue(float(cfg.get("mouth_open_deadzone", 0.09)))
+        self.spin_mouth_gain.setValue(float(cfg.get("mouth_open_gain", 1.6)))
+        self.spin_u_max.setValue(float(cfg.get("u_max_clamp", 0.58)))
 
-        self.spin_brow_dz.setValue(float(cfg.get("brow_raise_deadzone", 0.08)))
+        self.spin_brow_dz.setValue(float(cfg.get("brow_raise_deadzone", 0.10)))
         self.spin_brow_gain.setValue(float(cfg.get("brow_raise_gain", 2.2)))
-        self.spin_frown_dz.setValue(float(cfg.get("frown_deadzone", 0.08)))
+        self.spin_frown_dz.setValue(float(cfg.get("frown_deadzone", 0.10)))
 
-        self.spin_blink_dz.setValue(float(cfg.get("blink_deadzone", 0.10)))
-        self.spin_blink_snap.setValue(float(cfg.get("blink_snap_thresh", 0.22)))
+        self.spin_blink_dz.setValue(float(cfg.get("blink_deadzone", 0.13)))
+        self.spin_blink_snap.setValue(float(cfg.get("blink_snap_thresh", 0.25)))
 
         self.spin_pitch_offset.setValue(float(cfg.get("pitch_offset_deg", 18.0)))
         self.spin_filter_cutoff.setValue(float(cfg.get("filter_min_cutoff", 0.8)))

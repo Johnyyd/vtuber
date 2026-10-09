@@ -201,13 +201,11 @@ class TrackingWorker(QThread):
                     vrc = map_mediapipe_to_vrc(mp_blendshapes)
                     raw_gaze = compute_iris_gaze(landmarks, mp_blendshapes=mp_blendshapes)
 
-                    # Check if eyes are blinking or closing
+                    # Check if eyes are blinking or closing (using calibrated vrm_shapes to ignore glasses shadow noise)
                     is_blinking = (
-                        vrm_shapes.get("blink", 0.0) > 0.12 or
-                        vrm_shapes.get("blink_l", 0.0) > 0.15 or
-                        vrm_shapes.get("blink_r", 0.0) > 0.15 or
-                        mp_blendshapes.get("eyeBlinkLeft", 0.0) > 0.15 or
-                        mp_blendshapes.get("eyeBlinkRight", 0.0) > 0.15
+                        vrm_shapes.get("blink", 0.0) > 0.40 or
+                        vrm_shapes.get("blink_l", 0.0) > 0.45 or
+                        vrm_shapes.get("blink_r", 0.0) > 0.45
                     )
 
                     # Filter rotation & iris gaze to eliminate jitter while keeping instant response

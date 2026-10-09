@@ -385,11 +385,26 @@ def map_mediapipe_to_vrm(
     mp_blendshapes: Dict[str, float],
     landmarks: Optional[Dict[str, Tuple[float, float, float]]] = None,
     pitch: float = 0.0,
+    config: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, float]:
     """
     Map MediaPipe ARKit blendshapes & dense 3D biomechanical landmarks to VRM 0.x standard blendshapes.
     Fuses physical EAR (Eye Aspect Ratio) and MAR (Mouth Aspect Ratio) for sub-millimeter precision.
+    Supports optional config parameter dictionary for custom deadzones and gains.
     """
+    cfg = config or {}
+    smile_dz = float(cfg.get("smile_deadzone", 0.08))
+    smile_gain = float(cfg.get("smile_gain", 2.5))
+    mouth_dz = float(cfg.get("mouth_open_deadzone", 0.06))
+    mouth_gain = float(cfg.get("mouth_open_gain", 1.5))
+    u_max = float(cfg.get("u_max_clamp", 0.60))
+    blink_dz = float(cfg.get("blink_deadzone", 0.10))
+    blink_snap = float(cfg.get("blink_snap_thresh", 0.22))
+    brow_dz = float(cfg.get("brow_raise_deadzone", 0.08))
+    brow_gain = float(cfg.get("brow_raise_gain", 2.2))
+    frown_dz = float(cfg.get("frown_deadzone", 0.08))
+    frown_gain = float(cfg.get("frown_gain", 2.0))
+
     def g(name: str) -> float:
         return mp_blendshapes.get(name, 0.0)
 
@@ -403,10 +418,10 @@ def map_mediapipe_to_vrm(
     tilt_penalty = max(0.0, pitch * 0.15) if pitch > 0 else 0.0
     jaw = max(0.0, jaw - tilt_penalty)
 
-    # Clean resting deadzone at 0.06: when mouth is closed or head tilts down, jaw_active is 0.0
-    if jaw > 0.06:
-        # Standard speech jawOpen is 0.05 - 0.16. Scale 0.06..0.16 to 0.0..1.0
-        jaw_active = _clamp((jaw - 0.06) / (0.16 - 0.06))
+    # Clean resting deadzone: when mouth is closed or head tilts down, jaw_active is 0.0
+    if jaw > mouth_dz:
+        # Scale mouth_dz..0.16 to 0.0..1.0
+        jaw_active = _clamp((jaw - mouth_dz) / max(0.05, 0.16 - mouth_dz))
     else:
         jaw_active = 0.0
 
@@ -439,8 +454,8 @@ def map_mediapipe_to_vrm(
         return max(0.0, val - deadzone)
 
     # Vowels purely based on lip shapes (stretch for E/I, pucker/funnel for U/O)
-    # VRoid models pinch the mouth inwards across the center line if U > 0.65; cap at 0.60 for a natural anime U
-    u_val = min(0.60, _dz(pucker, 0.12) * 2.2)
+    # VRoid models pinch the mouth inwards across the center line if U > 0.65; cap at u_max for a natural anime U
+    u_val = min(u_max, _dz(pucker, 0.12) * 2.2)
     o_val = _dz(funnel, 0.15) * 4.0 + _dz(raw_a, 0.10) * _dz(pucker, 0.15) * 2.0
     e_val = _dz(stretch, 0.15) * 4.0
     i_val = _dz(stretch, 0.15) * 3.5
@@ -452,7 +467,7 @@ def map_mediapipe_to_vrm(
 
     # A is jaw opening, gently scaled down by heavy lip pucker (u)
     u_penalty = vrm["u"] * 0.4
-    vrm["a"] = _clamp(_dz(raw_a, 0.02) * 1.5 * (1.0 - u_penalty))
+    vrm["a"] = _clamp(_dz(raw_a, 0.02) * mouth_gain * (1.0 - u_penalty))
 
     vrm["neutral"] = _clamp(1.0 - (vrm["a"] + vrm["i"] + vrm["u"] + vrm["e"] + vrm["o"]))
 
@@ -460,8 +475,8 @@ def map_mediapipe_to_vrm(
     raw_l = g("eyeBlinkLeft")
     raw_r = g("eyeBlinkRight")
 
-    bl_l = _calibrate_blink(raw_l, deadzone=0.10, snap_thresh=0.22)
-    bl_r = _calibrate_blink(raw_r, deadzone=0.10, snap_thresh=0.22)
+    bl_l = _calibrate_blink(raw_l, deadzone=blink_dz, snap_thresh=blink_snap)
+    bl_r = _calibrate_blink(raw_r, deadzone=blink_dz, snap_thresh=blink_snap)
 
     if landmarks:
         ear_l, ear_r = compute_ear(landmarks)
@@ -514,13 +529,12 @@ def map_mediapipe_to_vrm(
         vrm["blink_r"] = 0.0
 
     # 3. Facial Expressions
-    # Highly responsive smile detection with clean resting deadzone at 0.08
-    # Blends peak smile and mean smile for instant, reliable detection of subtle or asymmetric smiles
+    # Highly responsive smile detection with configurable deadzone
     peak_smile = max(g("mouthSmileLeft"), g("mouthSmileRight"))
     effective_smile = peak_smile * 0.6 + smile * 0.4
 
-    if effective_smile > 0.08:
-        base_joy = _clamp((effective_smile - 0.08) * 2.5)
+    if effective_smile > smile_dz:
+        base_joy = _clamp((effective_smile - smile_dz) * smile_gain)
     else:
         base_joy = 0.0
     vrm["joy"] = _clamp(base_joy)
@@ -534,15 +548,15 @@ def map_mediapipe_to_vrm(
     eye_wide = (g("eyeWideLeft") + g("eyeWideRight")) * 0.5
     frown = (g("mouthFrownLeft") + g("mouthFrownRight")) * 0.5
 
-    if (brow_raise > 0.08 or eye_wide > 0.15) and frown < 0.12:
-        vrm["surprised"] = _clamp(max((brow_raise - 0.08) * 2.2, (eye_wide - 0.15) * 2.5))
+    if (brow_raise > brow_dz or eye_wide > 0.15) and frown < 0.12:
+        vrm["surprised"] = _clamp(max((brow_raise - brow_dz) * brow_gain, (eye_wide - 0.15) * 2.5))
     else:
         vrm["surprised"] = 0.0
 
     # Sorrow requires genuine mouth frown or sad knitted inner brows (inner up while outer down)
     knitted_sad_brow = max(0.0, brow_inner - (brow_up_l + brow_up_r) * 0.5)
-    if frown > 0.08 or knitted_sad_brow > 0.15:
-        vrm["sorrow"] = _clamp(max(frown * 2.0, (knitted_sad_brow - 0.15) * 2.0))
+    if frown > frown_dz or knitted_sad_brow > 0.15:
+        vrm["sorrow"] = _clamp(max((frown - frown_dz) * frown_gain if frown > frown_dz else 0.0, (knitted_sad_brow - 0.15) * 2.0))
     else:
         vrm["sorrow"] = 0.0
 

@@ -126,16 +126,19 @@ class TrackingWorker(QThread):
     motion_ready = pyqtSignal(dict)
     status_changed = pyqtSignal(str)
 
-    def __init__(self, camera_id: int = 0):
+    def __init__(self, camera_id: int = 0, config: Optional[Dict[str, Any]] = None):
         super().__init__()
         self.camera_id = camera_id
+        self.config = config or {}
         self._running = True
         # OneEuroFilters for smooth, responsive head rotation and iris gaze without micro-jitter
-        self.filter_pitch = OneEuroFilter(min_cutoff=0.8, beta=0.015)
-        self.filter_yaw = OneEuroFilter(min_cutoff=0.8, beta=0.015)
-        self.filter_roll = OneEuroFilter(min_cutoff=0.8, beta=0.015)
-        self.filter_gaze_x = OneEuroFilter(min_cutoff=1.0, beta=0.02)
-        self.filter_gaze_y = OneEuroFilter(min_cutoff=1.0, beta=0.02)
+        cutoff = float(self.config.get("filter_min_cutoff", 0.8))
+        beta = float(self.config.get("filter_beta", 0.015))
+        self.filter_pitch = OneEuroFilter(min_cutoff=cutoff, beta=beta)
+        self.filter_yaw = OneEuroFilter(min_cutoff=cutoff, beta=beta)
+        self.filter_roll = OneEuroFilter(min_cutoff=cutoff, beta=beta)
+        self.filter_gaze_x = OneEuroFilter(min_cutoff=cutoff * 1.25, beta=beta * 1.3)
+        self.filter_gaze_y = OneEuroFilter(min_cutoff=cutoff * 1.25, beta=beta * 1.3)
         self.last_stable_gaze = {"x": 0.0, "y": 0.0}
 
     def run(self):
@@ -182,13 +185,19 @@ class TrackingWorker(QThread):
 
                 if mp_blendshapes and (lm_list or matrix is not None):
                     landmarks = lm_list[0] if lm_list else {}
+                    pitch_offset = float(self.config.get("pitch_offset_deg", 18.0))
                     raw_rotation = compute_head_pose(
                         landmarks,
                         frame_shape=(h, w),
                         matrix=matrix,
-                        pitch_offset_deg=18.0,
+                        pitch_offset_deg=pitch_offset,
                     )
-                    vrm_shapes = map_mediapipe_to_vrm(mp_blendshapes, landmarks=landmarks, pitch=raw_rotation["pitch"])
+                    vrm_shapes = map_mediapipe_to_vrm(
+                        mp_blendshapes,
+                        landmarks=landmarks,
+                        pitch=raw_rotation["pitch"],
+                        config=self.config,
+                    )
                     vrc = map_mediapipe_to_vrc(mp_blendshapes)
                     raw_gaze = compute_iris_gaze(landmarks, mp_blendshapes=mp_blendshapes)
 
@@ -253,8 +262,9 @@ class VTuberWindow(QMainWindow):
     """
     Native Desktop Application Window hosting the 3D VRM Viewport.
     """
-    def __init__(self, camera_id: int = 0, width: int = 1024, height: int = 768):
+    def __init__(self, camera_id: int = 0, width: int = 1024, height: int = 768, config: Optional[Dict[str, Any]] = None):
         super().__init__()
+        self.config = config or {}
         self.setWindowTitle("VTuber 3D Avatar")
         self.resize(width, height)
 
@@ -295,7 +305,7 @@ class VTuberWindow(QMainWindow):
         self.web_view.load(QUrl.fromLocalFile(viewer_html_path))
 
         # Start tracking thread
-        self.worker = TrackingWorker(camera_id=camera_id)
+        self.worker = TrackingWorker(camera_id=camera_id, config=self.config)
         self.worker.motion_ready.connect(self.on_motion_ready)
         self.worker.start()
 

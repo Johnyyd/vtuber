@@ -1,0 +1,63 @@
+# ==============================================================================
+# VTUBER 3D AVATAR - FILE CAU HINH THONG SO (CONFIG.TXT)
+# File cau hinh nhan dien khuon mat va he thong.
+# Co the chinh sua truc tiep hoac thong qua bang dieu khien truoc khi vao ung dung.
+# ==============================================================================
+
+[GENERAL]
+# Chi so camera webcam (0: webcam mac dinh, 1, 2: webcam roi hoac DroidCam...)
+camera_id = 0
+
+# Kich thuoc cua so mac dinh (pixels)
+window_width = 1024
+window_height = 768
+
+# Luon hien thi bang tuy chinh thong so truoc khi chay (True / False)
+show_launcher = true
+
+
+[TRACKING_SENSITIVITY]
+# Nụ cười (Joy):
+# - smile_deadzone: Diem bat dau nhan cuoi (mac dinh: 0.08, pham vi: 0.02 - 0.20)
+# - smile_gain: He so khuech dai nu cuoi (mac dinh: 2.5, pham vi: 1.0 - 5.0)
+smile_deadzone = 0.08
+smile_gain = 2.50
+
+# Khau hinh mieng noi (Speech / A):
+# - mouth_open_deadzone: Diem bat dau mo mieng (mac dinh: 0.06, pham vi: 0.02 - 0.15)
+# - mouth_open_gain: Do nhay mo mieng khi noi (mac dinh: 1.5, pham vi: 1.0 - 3.0)
+mouth_open_deadzone = 0.06
+mouth_open_gain = 1.50
+
+# Khau hinh chu moi U (Pucker):
+# - u_max_clamp: Gioi han toi da khau hinh U tranh chập 2 mep mieng (mac dinh: 0.60, pham vi: 0.40 - 0.70)
+u_max_clamp = 0.60
+
+# Chop mat (Blink):
+# - blink_deadzone: Diem bat dau nhan chop mat (mac dinh: 0.10, pham vi: 0.05 - 0.20)
+# - blink_snap_thresh: Diem nham mat hoan toan (mac dinh: 0.22, pham vi: 0.15 - 0.40)
+blink_deadzone = 0.10
+blink_snap_thresh = 0.22
+
+# Nhuong chan may (Surprised):
+# - brow_raise_deadzone: Diem bat dau nhan nhuong may (mac dinh: 0.08, pham vi: 0.02 - 0.20)
+# - brow_raise_gain: Do nhay bieu cam ngac nhien (mac dinh: 2.2, pham vi: 1.0 - 4.0)
+brow_raise_deadzone = 0.08
+brow_raise_gain = 2.20
+
+# Meu / Buon (Sorrow):
+# - frown_deadzone: Diem bat dau nhan khoe mieng triu xuong (mac dinh: 0.08, pham vi: 0.02 - 0.20)
+# - frown_gain: Do nhay bieu cam buon (mac dinh: 2.0, pham vi: 1.0 - 4.0)
+frown_deadzone = 0.08
+frown_gain = 2.00
+
+
+[CAMERA_AND_FILTER]
+# Goc bu tru do nghieng camera khi dat tren/duoi man hinh (do, mac dinh: 18.0)
+pitch_offset_deg = 18.0
+
+# Bo loc chong rung OneEuroFilter:
+# - filter_min_cutoff: Tan so loc rung luc nghi (mac dinh: 0.8, cang nho cang muot)
+# - filter_beta: Do nhay dap ung khi cu dong nhanh (mac dinh: 0.02, cang lon cang it tre)
+filter_min_cutoff = 0.80
+filter_beta = 0.0200

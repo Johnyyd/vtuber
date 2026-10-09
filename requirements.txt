@@ -4,3 +4,4 @@ numpy
 pygltflib>=1.16
 PyQt6>=6.5.0
 PyQt6-WebEngine>=6.5.0
+matplotlib

@@ -41,6 +41,7 @@ hiddenimports = [
     'mediapipe.tasks.python.vision',
     'pygltflib',
     'configparser',
+    'matplotlib',
 ]
 
 try:
@@ -57,7 +58,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['tkinter', 'matplotlib', 'notebook'],
+    excludes=['tkinter', 'notebook'],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,

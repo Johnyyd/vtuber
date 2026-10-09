@@ -634,6 +634,46 @@
     const eyeKeys = ["blink", "blink_l", "blink_r", "joy", "fun", "sorrow", "angry", "surprised"];
     const mouthKeys = ["a", "i", "u", "e", "o", "joy", "angry", "sorrow", "fun", "surprised"];
 
+    // Mutual Exclusivity for Facial Emotions: Only 1 dominant emotion allowed at any time
+    const emotionKeys = ["joy", "surprised", "sorrow", "angry", "fun"];
+    let dominantEmotion = null;
+    let maxEmotionVal = 0.0;
+    for (const emo of emotionKeys) {
+      const val = targetMotion.vrm[emo] || 0.0;
+      if (val > maxEmotionVal) {
+        maxEmotionVal = val;
+        dominantEmotion = emo;
+      }
+    }
+    const vowelKeys = ["a", "i", "u", "e", "o"];
+
+    // Deliberate emotion detection threshold (>= 0.25)
+    const hasActiveEmotion = maxEmotionVal >= 0.25;
+
+    // Zero out all conflicting non-dominant emotions
+    for (const emo of emotionKeys) {
+      if (emo !== dominantEmotion || !hasActiveEmotion) {
+        targetMotion.vrm[emo] = 0.0;
+        currentMotion.vrm[emo] = 0.0;
+      }
+    }
+
+    // When an emotion is confirmed active and stronger than speech vowels:
+    // It overrides other mouth visemes (a, i, u, e, o) and eye blinks to 0
+    if (hasActiveEmotion) {
+      for (const k of vowelKeys) {
+        targetMotion.vrm[k] = 0.0;
+        currentMotion.vrm[k] = 0.0;
+      }
+      const otherEyeKeys = ["blink", "blink_l", "blink_r"];
+      for (const k of otherEyeKeys) {
+        targetMotion.vrm[k] = 0.0;
+        currentMotion.vrm[k] = 0.0;
+      }
+      targetMotion.vrm["neutral"] = 0.0;
+      currentMotion.vrm["neutral"] = 0.0;
+    }
+
     for (const [key, rawTargetVal] of Object.entries(targetMotion.vrm)) {
       const isBlink = (key === "blink" || key === "blink_l" || key === "blink_r");
 
@@ -738,35 +778,14 @@
       if (currentVrm.blendShapeProxy) currentVrm.blendShapeProxy.update();
       if (currentVrm.expressionManager) currentVrm.expressionManager.update();
 
-      // If user is speaking while smiling, preserve happy eye squint via EYE_Joy
+      // Clear any manual morph target influences so VRM emotion presets manage the face cleanly
       if (mouthMesh && mouthMesh.morphTargetDictionary && mouthMesh.morphTargetInfluences) {
         const eyeJoyIdx = mouthMesh.morphTargetDictionary["Face.M_F00_000_00_Fcl_EYE_Joy"];
-        if (eyeJoyIdx !== undefined) {
-          if (currentMotion.vrm.joy > 0.05 && currentMotion.vrm.a > 0.05) {
-            const eyeSmileWeight = currentMotion.vrm.joy * Math.min(1.0, currentMotion.vrm.a * 2.0);
-            mouthMesh.morphTargetInfluences[eyeJoyIdx] = eyeSmileWeight;
-          } else {
-            mouthMesh.morphTargetInfluences[eyeJoyIdx] = 0.0;
-          }
-        }
-
-        // If user is speaking while surprised, preserve surprised brow & eye widening
+        if (eyeJoyIdx !== undefined) mouthMesh.morphTargetInfluences[eyeJoyIdx] = 0.0;
         const brwSurpIdx = mouthMesh.morphTargetDictionary["Face.M_F00_000_00_Fcl_BRW_Surprised"];
+        if (brwSurpIdx !== undefined) mouthMesh.morphTargetInfluences[brwSurpIdx] = 0.0;
         const eyeSurpIdx = mouthMesh.morphTargetDictionary["Face.M_F00_000_00_Fcl_EYE_Surprised"];
-        if (brwSurpIdx !== undefined) {
-          if (currentMotion.vrm.surprised > 0.05 && currentMotion.vrm.a > 0.05) {
-            mouthMesh.morphTargetInfluences[brwSurpIdx] = currentMotion.vrm.surprised;
-          } else {
-            mouthMesh.morphTargetInfluences[brwSurpIdx] = 0.0;
-          }
-        }
-        if (eyeSurpIdx !== undefined) {
-          if (currentMotion.vrm.surprised > 0.05 && currentMotion.vrm.a > 0.05) {
-            mouthMesh.morphTargetInfluences[eyeSurpIdx] = currentMotion.vrm.surprised;
-          } else {
-            mouthMesh.morphTargetInfluences[eyeSurpIdx] = 0.0;
-          }
-        }
+        if (eyeSurpIdx !== undefined) mouthMesh.morphTargetInfluences[eyeSurpIdx] = 0.0;
       }
     }
     // No fallback needed for VRM models, expressionManager handles it natively.

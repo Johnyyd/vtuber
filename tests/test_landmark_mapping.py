@@ -71,25 +71,67 @@ class TestLandmarkMapping(unittest.TestCase):
         except ImportError:
             from src.landmark_mapping import map_mediapipe_to_vrm, VRM_BLENDSHAPES
 
-        mp_input = {
-            "eyeBlinkLeft": 0.8,
-            "eyeBlinkRight": 0.8,
-            "jawOpen": 0.7,
-            "mouthSmileLeft": 0.85,
-            "mouthSmileRight": 0.85,
-        }
-        vrm = map_mediapipe_to_vrm(mp_input)
-        self.assertIn("a", vrm)
-        self.assertIn("blink", vrm)
-        self.assertIn("blink_l", vrm)
-        self.assertIn("blink_r", vrm)
-        self.assertIn("joy", vrm)
-        self.assertGreater(vrm["a"], 0.5)
-        self.assertGreater(vrm["blink"], 0.7)
-        self.assertGreater(vrm["joy"], 0.6)
+        # Test mouth opening without emotion
+        vrm_a = map_mediapipe_to_vrm({"jawOpen": 0.7})
+        self.assertGreater(vrm_a["a"], 0.5)
+
+        # Test eye blinking without emotion
+        vrm_blink = map_mediapipe_to_vrm({"eyeBlinkLeft": 0.8, "eyeBlinkRight": 0.8})
+        self.assertGreater(vrm_blink["blink"], 0.7)
+
+        # Test joy emotion
+        vrm_joy = map_mediapipe_to_vrm({"mouthSmileLeft": 0.85, "mouthSmileRight": 0.85})
+        self.assertGreater(vrm_joy["joy"], 0.6)
+
         for name in VRM_BLENDSHAPES:
-            self.assertIn(name, vrm)
-            self.assertTrue(0.0 <= vrm[name] <= 1.0)
+            self.assertIn(name, vrm_joy)
+            self.assertTrue(0.0 <= vrm_joy[name] <= 1.0)
+
+    def test_emotion_overrides_other_mouth_and_eye_expressions(self):
+        try:
+            from landmark_mapping import map_mediapipe_to_vrm
+        except ImportError:
+            from src.landmark_mapping import map_mediapipe_to_vrm
+
+        # 1. Angry overrides mouth and eyes to 0 (brows down triggers angry)
+        mp_angry = {
+            "browDownLeft": 0.8,
+            "browDownRight": 0.8,
+            "jawOpen": 0.6,
+            "eyeBlinkLeft": 0.7,
+            "eyeBlinkRight": 0.7,
+        }
+        vrm_angry = map_mediapipe_to_vrm(mp_angry)
+        self.assertGreater(vrm_angry["angry"], 0.5, "Angry must be active")
+        self.assertEqual(vrm_angry["a"], 0.0, "Angry must override mouth opening to 0")
+        self.assertEqual(vrm_angry["blink"], 0.0, "Angry must override eye blink to 0")
+        self.assertEqual(vrm_angry["joy"], 0.0)
+        self.assertEqual(vrm_angry["surprised"], 0.0)
+
+        # 2. Joy overrides jawOpen and blink to 0
+        mp_joy_with_jaw = {
+            "mouthSmileLeft": 0.9,
+            "mouthSmileRight": 0.9,
+            "jawOpen": 0.5,
+            "eyeBlinkLeft": 0.6,
+            "eyeBlinkRight": 0.6,
+        }
+        vrm_joy_res = map_mediapipe_to_vrm(mp_joy_with_jaw)
+        self.assertGreater(vrm_joy_res["joy"], 0.6, "Joy must be active")
+        self.assertEqual(vrm_joy_res["a"], 0.0, "Joy must override mouth to 0")
+        self.assertEqual(vrm_joy_res["blink"], 0.0, "Joy must override blink to 0")
+
+        # 3. Surprised overrides vowels and blink to 0
+        mp_surp = {
+            "browInnerUp": 0.8,
+            "eyeWideLeft": 0.4,
+            "eyeWideRight": 0.4,
+            "mouthStretchLeft": 0.5,
+        }
+        vrm_surp = map_mediapipe_to_vrm(mp_surp)
+        self.assertGreater(vrm_surp["surprised"], 0.6)
+        self.assertEqual(vrm_surp["e"], 0.0)
+        self.assertEqual(vrm_surp["blink"], 0.0)
 
     def test_one_euro_filter_smoothing(self):
         try:
@@ -385,6 +427,86 @@ class TestLandmarkMapping(unittest.TestCase):
         }
         vrm_blink = map_mediapipe_to_vrm(mp_blink, config=cfg)
         self.assertEqual(vrm_blink["blink"], 1.0, "Deliberate blink must snap cleanly")
+
+    def test_emotion_mutual_exclusivity_prevents_simultaneous_joy_and_surprised(self):
+        try:
+            from landmark_mapping import map_mediapipe_to_vrm
+        except ImportError:
+            from src.landmark_mapping import map_mediapipe_to_vrm
+
+        # Combined expression: Strong smile + Moderate eyebrow raise
+        # Joy is dominant: only Joy should be active, Surprised must be 0.0
+        mp_combined_joy_dominant = {
+            "mouthSmileLeft": 0.85,
+            "mouthSmileRight": 0.85,
+            "browInnerUp": 0.35,
+            "browOuterUpLeft": 0.35,
+            "browOuterUpRight": 0.35,
+        }
+        vrm_joy = map_mediapipe_to_vrm(mp_combined_joy_dominant)
+        self.assertGreater(vrm_joy["joy"], 0.5, "Dominant joy must be active")
+        self.assertEqual(vrm_joy["surprised"], 0.0, "Non-dominant surprised must be strictly 0.0")
+        self.assertEqual(vrm_joy["sorrow"], 0.0)
+        self.assertEqual(vrm_joy["angry"], 0.0)
+
+        # Combined expression: Extreme eyebrow raise + Small smile
+        # Surprised is dominant: only Surprised should be active, Joy must be 0.0
+        mp_combined_surp_dominant = {
+            "mouthSmileLeft": 0.15,
+            "mouthSmileRight": 0.15,
+            "browInnerUp": 0.85,
+            "browOuterUpLeft": 0.85,
+            "browOuterUpRight": 0.85,
+            "eyeWideLeft": 0.40,
+            "eyeWideRight": 0.40,
+        }
+        vrm_surp = map_mediapipe_to_vrm(mp_combined_surp_dominant)
+        self.assertGreater(vrm_surp["surprised"], 0.5, "Dominant surprised must be active")
+        self.assertEqual(vrm_surp["joy"], 0.0, "Non-dominant joy must be strictly 0.0")
+        self.assertEqual(vrm_surp["sorrow"], 0.0)
+        self.assertEqual(vrm_surp["angry"], 0.0)
+
+    def test_all_vowels_activate_responsively_without_false_emotions(self):
+        try:
+            from landmark_mapping import map_mediapipe_to_vrm
+        except ImportError:
+            from src.landmark_mapping import map_mediapipe_to_vrm
+
+        # 1. Vowel 'A' (Jaw Open): must activate 'a' cleanly without triggering false emotions
+        mp_a = {"jawOpen": 0.40}
+        vrm_a = map_mediapipe_to_vrm(mp_a)
+        self.assertGreater(vrm_a["a"], 0.5, "Vowel 'A' must be active")
+        self.assertEqual(vrm_a["joy"], 0.0)
+        self.assertEqual(vrm_a["surprised"], 0.0)
+
+        # 2. Vowel 'I' (Lips stretched horizontally with small jaw): must activate 'i'
+        mp_i = {"mouthStretchLeft": 0.25, "mouthStretchRight": 0.25, "jawOpen": 0.05}
+        vrm_i = map_mediapipe_to_vrm(mp_i)
+        self.assertGreater(vrm_i["i"], 0.4, "Vowel 'I' must be active")
+        self.assertEqual(vrm_i["joy"], 0.0, "Horizontal stretch for 'I' must not false trigger Joy")
+
+        # 3. Vowel 'E' (Lips stretched horizontally with open jaw): must activate 'e'
+        mp_e = {"mouthStretchLeft": 0.25, "mouthStretchRight": 0.25, "jawOpen": 0.35}
+        vrm_e = map_mediapipe_to_vrm(mp_e)
+        self.assertGreater(vrm_e["e"], 0.4, "Vowel 'E' must be active")
+        self.assertEqual(vrm_e["joy"], 0.0, "Horizontal stretch for 'E' must not false trigger Joy")
+
+        # 4. Vowel 'U' (Lips puckered forward): must activate 'u'
+        mp_u = {"mouthPucker": 0.25}
+        vrm_u = map_mediapipe_to_vrm(mp_u)
+        self.assertGreater(vrm_u["u"], 0.3, "Vowel 'U' must be active")
+        self.assertEqual(vrm_u["joy"], 0.0)
+
+        # 5. Vowel 'O' (Mouth funnel or open rounded lips): must activate 'o'
+        mp_o = {"mouthFunnel": 0.25}
+        vrm_o = map_mediapipe_to_vrm(mp_o)
+        self.assertGreater(vrm_o["o"], 0.4, "Vowel 'O' must be active")
+        self.assertEqual(vrm_o["joy"], 0.0)
+
+        # Open jaw + pucker also produces 'O'
+        mp_o_round = {"jawOpen": 0.25, "mouthPucker": 0.15}
+        vrm_o_round = map_mediapipe_to_vrm(mp_o_round)
+        self.assertGreater(vrm_o_round["o"], 0.3, "Rounded lips with open jaw must activate 'O'")
 
 
 if __name__ == "__main__":

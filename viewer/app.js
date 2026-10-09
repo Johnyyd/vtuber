@@ -496,6 +496,16 @@
     if (hudStatus) {
       hudStatus.innerText = isTrackingActive ? "Tracking Active" : "No Face Detected";
     }
+    const hudStatusDot = document.getElementById("hud-status-dot");
+    if (hudStatusDot) {
+      if (isTrackingActive) {
+        hudStatusDot.classList.remove("inactive");
+        hudStatusDot.title = "Tracking Active (Đang nhận diện)";
+      } else {
+        hudStatusDot.classList.add("inactive");
+        hudStatusDot.title = "No Face Detected (Không thấy khuôn mặt)";
+      }
+    }
 
     if (!isTrackingActive) {
       // Gently return to neutral

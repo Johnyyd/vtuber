@@ -51,6 +51,9 @@ class TestViewerHtml(unittest.TestCase):
             content = f.read()
         self.assertIn("bottom: 16px", content)
         self.assertIn(".size-control-pill", content)
+        self.assertIn("#hud-status-pill", content)
+        self.assertIn("min-width: 295px", content)
+        self.assertIn("max-width: 295px", content)
 
 
 if __name__ == "__main__":

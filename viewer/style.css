@@ -68,7 +68,7 @@ body, html {
   display: flex;
   align-items: center;
   gap: 10px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   pointer-events: none;
   z-index: 5;
 }
@@ -89,6 +89,18 @@ body, html {
   font-weight: 500;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
   user-select: none;
+  box-sizing: border-box;
+}
+
+/* Khung trạng thái cố định kích thước tuyệt đối, không bị nhảy kích thước khi đổi biểu cảm */
+#hud-status-pill {
+  width: 295px;
+  min-width: 295px;
+  max-width: 295px;
+  flex-shrink: 0;
+  padding: 6px 12px;
+  white-space: nowrap;
+  justify-content: flex-start;
 }
 
 .status-dot {
@@ -97,10 +109,46 @@ body, html {
   border-radius: 50%;
   background-color: #10b981;
   box-shadow: 0 0 8px #10b981;
+  flex-shrink: 0;
+  transition: background-color 0.25s, box-shadow 0.25s;
+}
+
+.status-dot.inactive {
+  background-color: #ef4444;
+  box-shadow: 0 0 8px #ef4444;
+}
+
+#hud-fps {
+  width: 48px;
+  min-width: 48px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+#hud-eye {
+  width: 78px;
+  min-width: 78px;
+  max-width: 78px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+#hud-mouth {
+  width: 95px;
+  min-width: 95px;
+  max-width: 95px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .divider {
   color: rgba(255, 255, 255, 0.15);
+  flex-shrink: 0;
 }
 
 /* Window size controls styling */

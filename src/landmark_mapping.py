@@ -315,7 +315,7 @@ def compute_iris_gaze(
     if mp_blendshapes:
         bl_l = mp_blendshapes.get("eyeBlinkLeft", 0.0)
         bl_r = mp_blendshapes.get("eyeBlinkRight", 0.0)
-        if bl_l >= 0.35 and bl_r >= 0.35:
+        if bl_l >= 0.25 or bl_r >= 0.25:
             return {"x": 0.0, "y": 0.0}
 
     landmarks = landmarks or {}

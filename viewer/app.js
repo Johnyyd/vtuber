@@ -561,31 +561,52 @@
     }
 
     // Blink State Machine (Runs every frame)
-    const physicalBlink = targetMotion.vrm.blink >= 0.15 || targetMotion.vrm.blink_l >= 0.25 || targetMotion.vrm.blink_r >= 0.25;
+    const isPhysicalBlink = targetMotion.vrm.blink >= 0.15 || targetMotion.vrm.blink_l >= 0.25 || targetMotion.vrm.blink_r >= 0.25;
 
     if (blinkState === "IDLE") {
-      if (physicalBlink) {
+      if (isPhysicalBlink) {
         blinkState = "HOLD";
-        blinkTimer = now + 150; // Hold for at least 150ms
+        blinkTimer = now + 140; // Hold for at least 140ms
         if (targetMotion.vrm.blink >= 0.15) activeBlinkType = "blink";
         else if (targetMotion.vrm.blink_l >= 0.25) activeBlinkType = "blink_l";
         else activeBlinkType = "blink_r";
       }
     } else if (blinkState === "HOLD") {
-      if (physicalBlink) {
-        // Extend the hold if they are still physically blinking
-        blinkTimer = Math.max(blinkTimer, now + 100);
+      if (isPhysicalBlink) {
+        // If both eyes close while previously in single-eye wink, upgrade immediately to synchronized blink
+        if (activeBlinkType !== "blink" && targetMotion.vrm.blink >= 0.15) {
+          activeBlinkType = "blink";
+        }
+        blinkTimer = Math.max(blinkTimer, now + 80);
       }
       if (now >= blinkTimer) {
         blinkState = "COOLDOWN";
-        blinkTimer = now + 200; // Cooldown for 200ms
+        blinkTimer = now + 160; // Cooldown for 160ms
       }
     } else if (blinkState === "COOLDOWN") {
-      if (now >= blinkTimer && !physicalBlink) {
-        // Must wait for cooldown to expire AND physically stop blinking to release
+      if (now >= blinkTimer && !isPhysicalBlink) {
         blinkState = "IDLE";
         activeBlinkType = null;
       }
+    }
+
+    // Mutual exclusivity enforcement across blink targets:
+    // Prevents Blink and Blink_L/R from ever stacking additively (which causes > 100% vertex displacement)
+    if (activeBlinkType === "blink" || targetMotion.vrm.blink > 0.10) {
+      targetMotion.vrm.blink_l = 0.0;
+      targetMotion.vrm.blink_r = 0.0;
+      currentMotion.vrm.blink_l = 0.0;
+      currentMotion.vrm.blink_r = 0.0;
+    } else if (activeBlinkType === "blink_l") {
+      targetMotion.vrm.blink = 0.0;
+      targetMotion.vrm.blink_r = 0.0;
+      currentMotion.vrm.blink = 0.0;
+      currentMotion.vrm.blink_r = 0.0;
+    } else if (activeBlinkType === "blink_r") {
+      targetMotion.vrm.blink = 0.0;
+      targetMotion.vrm.blink_l = 0.0;
+      currentMotion.vrm.blink = 0.0;
+      currentMotion.vrm.blink_l = 0.0;
     }
 
     // Check if eyes are blinking or closing
@@ -612,16 +633,20 @@
     const maxEyeAngle = 0.30;
     const eyePitchOffset = -0.07; // Downward pitch offset (~4 deg) to lower the pupil to natural height
 
+    // When eyes are closed/closing, smoothly return eyeballs to resting center
+    // This completely prevents frozen tilted eyeball bones twisting the eyelid mesh!
     const eyeRotX = -currentMotion.gaze.y * maxEyeAngle + eyePitchOffset;
     const eyeRotY = -currentMotion.gaze.x * maxEyeAngle;
 
-    // Freeze eyeball bone rotation while eyelids are closing, closed, or opening!
-    // This completely eliminates any jumping, snapping, or twitching of pupils during blinks.
-    if (eyeLeftBone && !isLeftClosing) {
-      eyeLeftBone.rotation.set(eyeRotX, eyeRotY, 0.0);
+    if (eyeLeftBone) {
+      const rotXL = isLeftClosing ? eyePitchOffset : eyeRotX;
+      const rotYL = isLeftClosing ? 0.0 : eyeRotY;
+      eyeLeftBone.rotation.set(rotXL, rotYL, 0.0);
     }
-    if (eyeRightBone && !isRightClosing) {
-      eyeRightBone.rotation.set(eyeRotX, eyeRotY, 0.0);
+    if (eyeRightBone) {
+      const rotXR = isRightClosing ? eyePitchOffset : eyeRotX;
+      const rotYR = isRightClosing ? 0.0 : eyeRotY;
+      eyeRightBone.rotation.set(rotXR, rotYR, 0.0);
     }
 
     // LERP interpolate expressions and blendshapes
@@ -732,6 +757,27 @@
             const speechAtten = Math.max(0.0, 1.0 - currentMotion.vrm.a * 1.8);
             vrm0Val *= speechAtten;
           }
+
+          // Strict vertex displacement safety clamp for eyelids:
+          // In VRoid models, EYE_Close (Blink), EYE_Close_L, EYE_Close_R, and emotion presets (Joy, Sorrow, Angry)
+          // affect the exact same eyelid vertices additively. Total eyelid closure MUST NEVER exceed 1.0 (100%),
+          // otherwise vertices penetrate the cheek and invert normals, causing 90-degree eyelid flip/collapse.
+          const emotionEyeClosure = Math.max(
+            currentMotion.vrm.joy || 0,
+            currentMotion.vrm.sorrow || 0,
+            currentMotion.vrm.angry || 0
+          );
+
+          if (vrm0Key === "Blink") {
+            vrm0Val = Math.min(vrm0Val, Math.max(0.0, 1.0 - emotionEyeClosure));
+          } else if (vrm0Key === "Blink_L") {
+            const currentBlink = (currentMotion.vrm.blink || 0);
+            vrm0Val = Math.min(vrm0Val, Math.max(0.0, 1.0 - currentBlink - emotionEyeClosure));
+          } else if (vrm0Key === "Blink_R") {
+            const currentBlink = (currentMotion.vrm.blink || 0);
+            vrm0Val = Math.min(vrm0Val, Math.max(0.0, 1.0 - currentBlink - emotionEyeClosure));
+          }
+
           try { currentVrm.blendShapeProxy.setValue(vrm0Key, vrm0Val); } catch (_) { }
         } else if (currentVrm.expressionManager) {
           // VRM 1.0 expects specific expression names
@@ -757,6 +803,14 @@
             const speechAtten = Math.max(0.0, 1.0 - currentMotion.vrm.a * 1.8);
             vrm1Val *= speechAtten;
           }
+          if (vrm1Key === "blink" || vrm1Key === "blinkLeft" || vrm1Key === "blinkRight") {
+            const emotionEyeClosure = Math.max(
+              currentMotion.vrm.joy || 0,
+              currentMotion.vrm.sorrow || 0,
+              currentMotion.vrm.angry || 0
+            );
+            vrm1Val = Math.min(vrm1Val, Math.max(0.0, 1.0 - emotionEyeClosure));
+          }
           try { currentVrm.expressionManager.setValue(vrm1Key, vrm1Val); } catch (_) { }
         }
       }
@@ -777,16 +831,6 @@
     if (currentVrm) {
       if (currentVrm.blendShapeProxy) currentVrm.blendShapeProxy.update();
       if (currentVrm.expressionManager) currentVrm.expressionManager.update();
-
-      // Clear any manual morph target influences so VRM emotion presets manage the face cleanly
-      if (mouthMesh && mouthMesh.morphTargetDictionary && mouthMesh.morphTargetInfluences) {
-        const eyeJoyIdx = mouthMesh.morphTargetDictionary["Face.M_F00_000_00_Fcl_EYE_Joy"];
-        if (eyeJoyIdx !== undefined) mouthMesh.morphTargetInfluences[eyeJoyIdx] = 0.0;
-        const brwSurpIdx = mouthMesh.morphTargetDictionary["Face.M_F00_000_00_Fcl_BRW_Surprised"];
-        if (brwSurpIdx !== undefined) mouthMesh.morphTargetInfluences[brwSurpIdx] = 0.0;
-        const eyeSurpIdx = mouthMesh.morphTargetDictionary["Face.M_F00_000_00_Fcl_EYE_Surprised"];
-        if (eyeSurpIdx !== undefined) mouthMesh.morphTargetInfluences[eyeSurpIdx] = 0.0;
-      }
     }
     // No fallback needed for VRM models, expressionManager handles it natively.
     // Raw GLTF fallback is removed for simplicity, as this project focuses on VRM.

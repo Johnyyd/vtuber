@@ -313,7 +313,36 @@ class TestLandmarkMapping(unittest.TestCase):
         vrm_rest = map_mediapipe_to_vrm(mp_rest)
         self.assertEqual(vrm_rest["u"], 0.0, "U vowel must be 0.0 at rest")
 
+    def test_eyebrow_raise_triggers_surprised_not_sorrow(self):
+        try:
+            from landmark_mapping import map_mediapipe_to_vrm
+        except ImportError:
+            from src.landmark_mapping import map_mediapipe_to_vrm
+
+        # User raises eyebrows (browInnerUp & browOuterUp)
+        mp_brow_up = {
+            "browInnerUp": 0.50,
+            "browOuterUpLeft": 0.45,
+            "browOuterUpRight": 0.45,
+            "eyeWideLeft": 0.30,
+            "eyeWideRight": 0.30,
+        }
+        vrm = map_mediapipe_to_vrm(mp_brow_up)
+        self.assertGreater(vrm["surprised"], 0.5, "Raising eyebrows must trigger surprised expression")
+        self.assertEqual(vrm["sorrow"], 0.0, "Raising eyebrows must NEVER trigger sorrow")
+
+        # User genuinely frowns / sad mouth
+        mp_sad = {
+            "mouthFrownLeft": 0.40,
+            "mouthFrownRight": 0.40,
+            "browInnerUp": 0.25,
+        }
+        vrm_sad = map_mediapipe_to_vrm(mp_sad)
+        self.assertGreater(vrm_sad["sorrow"], 0.5, "Genuine mouth frown must trigger sorrow")
+        self.assertEqual(vrm_sad["surprised"], 0.0, "Sad face must not trigger surprised")
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

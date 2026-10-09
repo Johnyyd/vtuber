@@ -34,6 +34,7 @@
       angry: 0.0,
       sorrow: 0.0,
       fun: 0.0,
+      surprised: 0.0,
     },
     vrc: {
       vrc_blink: 0.0,
@@ -620,8 +621,8 @@
     let topEye = "Open";
     let maxEyeWeight = 0.0;
 
-    const eyeKeys = ["blink", "blink_l", "blink_r", "joy", "fun", "sorrow", "angry"];
-    const mouthKeys = ["a", "i", "u", "e", "o", "joy", "angry", "sorrow", "fun"];
+    const eyeKeys = ["blink", "blink_l", "blink_r", "joy", "fun", "sorrow", "angry", "surprised"];
+    const mouthKeys = ["a", "i", "u", "e", "o", "joy", "angry", "sorrow", "fun", "surprised"];
 
     for (const [key, rawTargetVal] of Object.entries(targetMotion.vrm)) {
       const isBlink = (key === "blink" || key === "blink_l" || key === "blink_r");
@@ -664,6 +665,7 @@
           if (key === "angry") vrm0Key = "Angry";
           if (key === "sorrow") vrm0Key = "Sorrow";
           if (key === "fun") vrm0Key = "Fun";
+          if (key === "surprised") vrm0Key = "Surprised";
           if (key === "lookup") vrm0Key = "LookUp";
           if (key === "lookdown") vrm0Key = "LookDown";
           if (key === "lookleft") vrm0Key = "LookLeft";
@@ -675,8 +677,8 @@
           if (vrm0Key === "U") {
             vrm0Val = Math.min(0.60, vrm0Val);
           }
-          // When mouth is opening for speech (a > 0.05), attenuate Joy so ALL_Joy doesn't lock the mouth shut
-          if (vrm0Key === "Joy" && currentMotion.vrm.a > 0.05) {
+          // When mouth is opening for speech (a > 0.05), attenuate Joy and Surprised so their mouth shapes don't lock or fight with A
+          if ((vrm0Key === "Joy" || vrm0Key === "Surprised") && currentMotion.vrm.a > 0.05) {
             const speechAtten = Math.max(0.0, 1.0 - currentMotion.vrm.a * 1.8);
             vrm0Val *= speechAtten;
           }
@@ -695,12 +697,13 @@
           if (key === "angry") vrm1Key = "angry";
           if (key === "sorrow") vrm1Key = "sad";
           if (key === "fun") vrm1Key = "relaxed";
+          if (key === "surprised") vrm1Key = "surprised";
 
           let vrm1Val = currentMotion.vrm[key];
           if (vrm1Key === "ou") {
             vrm1Val = Math.min(0.60, vrm1Val);
           }
-          if (vrm1Key === "happy" && currentMotion.vrm.a > 0.05) {
+          if ((vrm1Key === "happy" || vrm1Key === "surprised") && currentMotion.vrm.a > 0.05) {
             const speechAtten = Math.max(0.0, 1.0 - currentMotion.vrm.a * 1.8);
             vrm1Val *= speechAtten;
           }
@@ -726,14 +729,32 @@
       if (currentVrm.expressionManager) currentVrm.expressionManager.update();
 
       // If user is speaking while smiling, preserve happy eye squint via EYE_Joy
-      if (mouthMesh && mouthMesh.morphTargetDictionary) {
+      if (mouthMesh && mouthMesh.morphTargetDictionary && mouthMesh.morphTargetInfluences) {
         const eyeJoyIdx = mouthMesh.morphTargetDictionary["Face.M_F00_000_00_Fcl_EYE_Joy"];
-        if (eyeJoyIdx !== undefined && mouthMesh.morphTargetInfluences) {
+        if (eyeJoyIdx !== undefined) {
           if (currentMotion.vrm.joy > 0.05 && currentMotion.vrm.a > 0.05) {
             const eyeSmileWeight = currentMotion.vrm.joy * Math.min(1.0, currentMotion.vrm.a * 2.0);
             mouthMesh.morphTargetInfluences[eyeJoyIdx] = eyeSmileWeight;
           } else {
             mouthMesh.morphTargetInfluences[eyeJoyIdx] = 0.0;
+          }
+        }
+
+        // If user is speaking while surprised, preserve surprised brow & eye widening
+        const brwSurpIdx = mouthMesh.morphTargetDictionary["Face.M_F00_000_00_Fcl_BRW_Surprised"];
+        const eyeSurpIdx = mouthMesh.morphTargetDictionary["Face.M_F00_000_00_Fcl_EYE_Surprised"];
+        if (brwSurpIdx !== undefined) {
+          if (currentMotion.vrm.surprised > 0.05 && currentMotion.vrm.a > 0.05) {
+            mouthMesh.morphTargetInfluences[brwSurpIdx] = currentMotion.vrm.surprised;
+          } else {
+            mouthMesh.morphTargetInfluences[brwSurpIdx] = 0.0;
+          }
+        }
+        if (eyeSurpIdx !== undefined) {
+          if (currentMotion.vrm.surprised > 0.05 && currentMotion.vrm.a > 0.05) {
+            mouthMesh.morphTargetInfluences[eyeSurpIdx] = currentMotion.vrm.surprised;
+          } else {
+            mouthMesh.morphTargetInfluences[eyeSurpIdx] = 0.0;
           }
         }
       }

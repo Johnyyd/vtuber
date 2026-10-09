@@ -45,6 +45,7 @@ VRM_BLENDSHAPES = [
     "angry",
     "sorrow",
     "fun",
+    "surprised",
     "lookup",
     "lookdown",
     "lookleft",
@@ -524,8 +525,28 @@ def map_mediapipe_to_vrm(
         base_joy = 0.0
     vrm["joy"] = _clamp(base_joy)
     vrm["angry"] = _clamp((g("browDownLeft") + g("browDownRight")) * 1.5)
-    vrm["sorrow"] = _clamp(g("browInnerUp") * 1.2)
-    vrm["fun"] = _clamp((g("eyeWideLeft") + g("eyeWideRight")) * 0.5 + vrm["a"] * 0.3)
+
+    # Eyebrow raising & eye widening -> Surprised (not sorrow)
+    brow_up_l = g("browOuterUpLeft")
+    brow_up_r = g("browOuterUpRight")
+    brow_inner = g("browInnerUp")
+    brow_raise = max(brow_inner, (brow_up_l + brow_up_r) * 0.5)
+    eye_wide = (g("eyeWideLeft") + g("eyeWideRight")) * 0.5
+    frown = (g("mouthFrownLeft") + g("mouthFrownRight")) * 0.5
+
+    if (brow_raise > 0.08 or eye_wide > 0.15) and frown < 0.12:
+        vrm["surprised"] = _clamp(max((brow_raise - 0.08) * 2.2, (eye_wide - 0.15) * 2.5))
+    else:
+        vrm["surprised"] = 0.0
+
+    # Sorrow requires genuine mouth frown or sad knitted inner brows (inner up while outer down)
+    knitted_sad_brow = max(0.0, brow_inner - (brow_up_l + brow_up_r) * 0.5)
+    if frown > 0.08 or knitted_sad_brow > 0.15:
+        vrm["sorrow"] = _clamp(max(frown * 2.0, (knitted_sad_brow - 0.15) * 2.0))
+    else:
+        vrm["sorrow"] = 0.0
+
+    vrm["fun"] = _clamp(eye_wide * 0.5 + vrm["a"] * 0.3)
 
     # 4. Gaze Direction (VRM Blendshape fallback)
     gaze = compute_iris_gaze(landmarks, mp_blendshapes)

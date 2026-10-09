@@ -272,9 +272,11 @@ class VTuberWindow(QMainWindow):
         self.web_view.page().setBackgroundColor(Qt.GlobalColor.transparent)
         layout.addWidget(self.web_view)
 
-        # Create a transparent overlay to capture mouse drag events
+        # Create a transparent overlay to capture mouse drag events (leaving bottom controls clickable)
         self.drag_overlay = QWidget(self)
         self.drag_overlay.setStyleSheet("background: transparent;")
+        overlay_h = max(0, height - 60)
+        self.drag_overlay.setGeometry(0, 0, width, overlay_h)
 
         # Configure WebEngine settings for local 3D rendering
         settings = self.web_view.settings()
@@ -282,6 +284,9 @@ class VTuberWindow(QMainWindow):
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.WebGLEnabled, True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.Accelerated2dCanvasEnabled, True)
+
+        # Connect title changes for IPC commands (e.g. window resize)
+        self.web_view.titleChanged.connect(self.on_title_changed)
 
         # Load local viewer HTML file
         viewer_html_path = os.path.abspath(
@@ -295,10 +300,28 @@ class VTuberWindow(QMainWindow):
         self.worker.start()
 
     def resizeEvent(self, event):
-        """Ensure the drag overlay covers the entire window."""
+        """Ensure the drag overlay covers the window except bottom controls, and notify web view."""
+        new_size = event.size()
+        bottom_controls_height = 60
+        overlay_h = max(0, new_size.height() - bottom_controls_height)
         if hasattr(self, 'drag_overlay'):
-            self.drag_overlay.resize(event.size())
+            self.drag_overlay.setGeometry(0, 0, new_size.width(), overlay_h)
         super().resizeEvent(event)
+
+        if hasattr(self, 'web_view') and self.web_view:
+            js = f"if (typeof window.onWindowResized === 'function') {{ window.onWindowResized({new_size.width()}, {new_size.height()}); }}"
+            self.web_view.page().runJavaScript(js)
+
+    def on_title_changed(self, title: str):
+        """Handle IPC commands from web view via document.title."""
+        if title.startswith("vtuber:resize:"):
+            try:
+                parts = title.split(":")
+                w = int(parts[2])
+                h = int(parts[3])
+                self.resize(w, h)
+            except (ValueError, IndexError):
+                pass
 
     def mousePressEvent(self, event):
         """Allow dragging the frameless window."""

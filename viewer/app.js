@@ -118,11 +118,156 @@
 
     window.addEventListener("resize", onWindowResize);
 
-    // 5. Load VRM Model (Yong)
+    // 5. Setup window size customization controls
+    setupWindowSizeControls();
+
+    // 6. Load VRM Model (Yong)
     loadModel("../assets/Arisa.vrm");
 
-    // 6. Start Render Loop
+    // 7. Start Render Loop
     requestAnimationFrame(animate);
+  }
+
+  // Window size customization & IPC
+  function requestWindowResize(width, height) {
+    const w = Math.max(300, Math.min(3840, parseInt(width, 10) || 1024));
+    const h = Math.max(200, Math.min(2160, parseInt(height, 10) || 768));
+    document.title = `vtuber:resize:${w}:${h}:${Date.now()}`;
+  }
+
+  function setupWindowSizeControls() {
+    const presetSelect = document.getElementById("win-preset-select");
+    const widthInput = document.getElementById("win-width-input");
+    const heightInput = document.getElementById("win-height-input");
+    const applyBtn = document.getElementById("win-apply-btn");
+    const resizeHandle = document.getElementById("win-resize-handle");
+
+    if (!presetSelect || !widthInput || !heightInput) return;
+
+    function syncInputsToCurrentSize() {
+      const curW = window.innerWidth;
+      const curH = window.innerHeight;
+      widthInput.value = curW;
+      heightInput.value = curH;
+
+      const matchingPreset = `${curW}x${curH}`;
+      let hasMatch = false;
+      for (let i = 0; i < presetSelect.options.length; i++) {
+        if (presetSelect.options[i].value === matchingPreset) {
+          presetSelect.selectedIndex = i;
+          hasMatch = true;
+          break;
+        }
+      }
+      if (!hasMatch) {
+        presetSelect.value = "custom";
+      }
+    }
+
+    // Initialize with current window dimensions
+    syncInputsToCurrentSize();
+
+    // Handle preset selection
+    presetSelect.addEventListener("change", () => {
+      const val = presetSelect.value;
+      if (val === "custom") {
+        widthInput.focus();
+        widthInput.select();
+        return;
+      }
+      const [w, h] = val.split("x").map((n) => parseInt(n, 10));
+      if (w && h) {
+        widthInput.value = w;
+        heightInput.value = h;
+        requestWindowResize(w, h);
+      }
+    });
+
+    // Handle manual input apply
+    function applyCustomSize() {
+      const w = parseInt(widthInput.value, 10);
+      const h = parseInt(heightInput.value, 10);
+      if (w && h) {
+        requestWindowResize(w, h);
+        const matchingPreset = `${w}x${h}`;
+        let hasMatch = false;
+        for (let i = 0; i < presetSelect.options.length; i++) {
+          if (presetSelect.options[i].value === matchingPreset) {
+            presetSelect.selectedIndex = i;
+            hasMatch = true;
+            break;
+          }
+        }
+        if (!hasMatch) {
+          presetSelect.value = "custom";
+        }
+      }
+    }
+
+    if (applyBtn) {
+      applyBtn.addEventListener("click", applyCustomSize);
+    }
+
+    widthInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") applyCustomSize();
+    });
+    heightInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") applyCustomSize();
+    });
+
+    // Handle drag resize handle
+    if (resizeHandle) {
+      let isDragging = false;
+      let startX = 0;
+      let startY = 0;
+      let startW = 0;
+      let startH = 0;
+
+      resizeHandle.addEventListener("mousedown", (e) => {
+        isDragging = true;
+        startX = e.screenX;
+        startY = e.screenY;
+        startW = window.innerWidth;
+        startH = window.innerHeight;
+        e.preventDefault();
+      });
+
+      window.addEventListener("mousemove", (e) => {
+        if (!isDragging) return;
+        const deltaX = e.screenX - startX;
+        const deltaY = e.screenY - startY;
+        const newW = Math.max(300, Math.min(3840, startW + deltaX));
+        const newH = Math.max(200, Math.min(2160, startH + deltaY));
+        widthInput.value = newW;
+        heightInput.value = newH;
+        requestWindowResize(newW, newH);
+      });
+
+      window.addEventListener("mouseup", () => {
+        if (isDragging) {
+          isDragging = false;
+          syncInputsToCurrentSize();
+        }
+      });
+    }
+
+    // Expose callback for Python resizeEvent
+    window.onWindowResized = function (w, h) {
+      widthInput.value = w;
+      heightInput.value = h;
+      const matchingPreset = `${w}x${h}`;
+      let hasMatch = false;
+      for (let i = 0; i < presetSelect.options.length; i++) {
+        if (presetSelect.options[i].value === matchingPreset) {
+          presetSelect.selectedIndex = i;
+          hasMatch = true;
+          break;
+        }
+      }
+      if (!hasMatch) {
+        presetSelect.value = "custom";
+      }
+    };
   }
 
   function hideLoading() {

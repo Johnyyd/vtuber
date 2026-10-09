@@ -17,14 +17,35 @@
   </div>
 
   <div id="hud-overlay">
-    <div class="hud-pill">
+    <div class="hud-pill" id="hud-status-pill">
       <span class="status-dot"></span>
       <span id="hud-status">Live Tracking</span>
       <span class="divider">|</span>
       <span id="hud-fps">60 FPS</span>
+      <span class="divider">|</span>
       <span id="hud-eye">Eye: Open</span>
       <span class="divider">|</span>
       <span id="hud-mouth">Mouth: Rest</span>
+    </div>
+
+    <div class="hud-pill size-control-pill" id="hud-size-pill">
+      <span class="size-icon" title="Kích thước cửa sổ">📐</span>
+      <select id="win-preset-select" class="hud-select" title="Chọn kích thước sẵn có">
+        <option value="640x480">640 × 480 (Nhỏ)</option>
+        <option value="800x600">800 × 600 (Chuẩn)</option>
+        <option value="1024x768" selected>1024 × 768 (Mặc định)</option>
+        <option value="1280x720">1280 × 720 (HD 720p)</option>
+        <option value="1600x900">1600 × 900 (HD+)</option>
+        <option value="1920x1080">1920 × 1080 (Full HD)</option>
+        <option value="custom">Tùy chỉnh...</option>
+      </select>
+      <div class="size-inputs-group">
+        <input type="number" id="win-width-input" class="hud-input" min="300" max="3840" step="10" value="1024" placeholder="W" title="Chiều rộng (px)">
+        <span class="size-cross">×</span>
+        <input type="number" id="win-height-input" class="hud-input" min="200" max="2160" step="10" value="768" placeholder="H" title="Chiều cao (px)">
+        <button id="win-apply-btn" class="hud-btn" title="Áp dụng kích thước">✓</button>
+      </div>
+      <div id="win-resize-handle" class="resize-handle" title="Kéo để chỉnh kích thước cửa sổ">⤡</div>
     </div>
   </div>
 

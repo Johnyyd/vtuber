@@ -159,13 +159,22 @@ class TrackingWorker(QThread):
 
         self.status_changed.emit("Camera tracking active")
         last_timestamp_ms = 0
+        wait_frames_start = time.time()
+        has_received_first_frame = False
 
         while self._running:
             try:
                 ret, frame = reader.read_latest()
                 if not ret or frame is None:
+                    if not has_received_first_frame and (time.time() - wait_frames_start > 3.0):
+                        self.status_changed.emit(
+                            f"Warning: Waiting for frames from camera {self.camera_id}... Check device index."
+                        )
+                        wait_frames_start = time.time()
                     time.sleep(0.005)
                     continue
+
+                has_received_first_frame = True
 
                 h, w = frame.shape[:2]
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)

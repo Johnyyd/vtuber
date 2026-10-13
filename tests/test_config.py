@@ -67,5 +67,37 @@ class TestMainArgParsing(unittest.TestCase):
         self.assertFalse(args.show_launcher)
 
 
+class TestConfigGUI(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from PyQt6.QtWidgets import QApplication
+        cls.app = QApplication.instance()
+        if cls.app is None:
+            cls.app = QApplication(sys.argv)
+
+    def test_detect_available_cameras(self):
+        from config_gui import detect_available_cameras
+        cams = detect_available_cameras()
+        self.assertIsInstance(cams, list)
+        self.assertGreater(len(cams), 0)
+        for idx, label in cams:
+            self.assertIsInstance(idx, int)
+            self.assertIsInstance(label, str)
+
+    def test_config_launcher_dialog_initial_config(self):
+        from config_gui import ConfigLauncherDialog
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cfg_path = os.path.join(temp_dir, "cfg.txt")
+            initial = {"camera_id": 1, "window_width": 1280, "window_height": 720}
+            dialog = ConfigLauncherDialog(config_path=cfg_path, initial_config=initial)
+            self.assertEqual(dialog.spin_cam_id.value(), 1)
+            self.assertEqual(dialog.spin_width.value(), 1280)
+            self.assertEqual(dialog.spin_height.value(), 720)
+            configured = dialog._collect_values_from_ui()
+            self.assertEqual(configured["camera_id"], 1)
+            self.assertEqual(configured["window_width"], 1280)
+            self.assertEqual(configured["window_height"], 720)
+
+
 if __name__ == "__main__":
     unittest.main()

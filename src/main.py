@@ -84,7 +84,7 @@ def main():
     should_show_launcher = (args.show_launcher or cfg.get("show_launcher", True)) and not args.no_launcher
 
     if should_show_launcher:
-        dialog = ConfigLauncherDialog(config_path=args.config)
+        dialog = ConfigLauncherDialog(config_path=args.config, initial_config=cfg)
         # If user closes or clicks Cancel/Thoát, exit cleanly
         if not dialog.exec():
             sys.exit(0)

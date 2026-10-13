@@ -9,7 +9,7 @@ Maps MediaPipe ARKit blendshapes to:
 
 import cv2
 import numpy as np
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple, Optional, Any
 
 
 # 16 Morph Targets present in character.vrm Mesh_InteriorMouth2

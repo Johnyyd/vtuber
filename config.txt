@@ -6,7 +6,7 @@
 
 [GENERAL]
 # Chi so camera webcam (0: webcam mac dinh, 1, 2: webcam roi hoac DroidCam...)
-camera_id = 0
+camera_id = 1
 
 # Kich thuoc cua so mac dinh (pixels)
 window_width = 800

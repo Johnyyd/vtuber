@@ -3,6 +3,7 @@ PyQt6 Configuration Launcher Dialog: Allows users to configure tracking & displa
 before launching the main 3D VTuber application.
 """
 
+import os
 import sys
 from PyQt6.QtWidgets import (
     QDialog,
@@ -27,13 +28,58 @@ from PyQt6.QtGui import QFont, QIcon
 from config_manager import DEFAULT_CONFIG, load_config, save_config
 
 
+def detect_available_cameras():
+    """
+    Detect available video capture devices across systems.
+    Returns list of (index, display_name).
+    """
+    cameras = []
+    v4l_dir = "/sys/class/video4linux"
+    if os.path.exists(v4l_dir):
+        entries = []
+        for name in os.listdir(v4l_dir):
+            if name.startswith("video"):
+                idx_str = name[5:]
+                if idx_str.isdigit():
+                    entries.append((int(idx_str), name))
+        entries.sort(key=lambda x: x[0])
+
+        for idx, name in entries:
+            name_file = os.path.join(v4l_dir, name, "name")
+            index_file = os.path.join(v4l_dir, name, "index")
+            dev_name = f"Camera {idx}"
+            if os.path.exists(name_file):
+                try:
+                    with open(name_file, "r") as f:
+                        dev_name = f.read().strip()
+                except Exception:
+                    pass
+            is_meta = False
+            if os.path.exists(index_file):
+                try:
+                    with open(index_file, "r") as f:
+                        if f.read().strip() != "0" and "Loopback" not in dev_name:
+                            is_meta = True
+                except Exception:
+                    pass
+            if not is_meta:
+                label = f"Camera {idx}: {dev_name}"
+                cameras.append((idx, label))
+
+    if not cameras:
+        cameras = [(0, "Camera 0: Mặc định"), (1, "Camera 1: Phụ / DroidCam")]
+    return cameras
+
+
 class ConfigLauncherDialog(QDialog):
     """Modern dark-themed parameter customization dialog."""
 
-    def __init__(self, parent=None, config_path=None):
+    def __init__(self, parent=None, config_path=None, initial_config=None):
         super().__init__(parent)
         self.config_path = config_path
         self.current_config = load_config(self.config_path) if self.config_path else load_config()
+        if initial_config:
+            self.current_config.update(initial_config)
 
         self.setWindowTitle("VTuber 3D Avatar - Cấu hình nhận diện & Khởi chạy")
         self.setMinimumSize(560, 620)
@@ -224,9 +270,23 @@ class ConfigLauncherDialog(QDialog):
         form_cam = QFormLayout(group_cam)
         form_cam.setSpacing(12)
 
+        cam_layout = QHBoxLayout()
+        self.combo_cam = QComboBox()
+        self.detected_cameras = detect_available_cameras()
+        for idx, label in self.detected_cameras:
+            self.combo_cam.addItem(label, idx)
+        self.combo_cam.addItem("Tùy chỉnh (Nhập chỉ số)...", -1)
+
         self.spin_cam_id = QSpinBox()
         self.spin_cam_id.setRange(0, 9)
-        form_cam.addRow("Chỉ số Camera (0 = Webcam chính):", self.spin_cam_id)
+
+        self.combo_cam.currentIndexChanged.connect(self._on_camera_combo_changed)
+        self.spin_cam_id.valueChanged.connect(self._on_camera_spin_changed)
+
+        cam_layout.addWidget(self.combo_cam, stretch=3)
+        cam_layout.addWidget(self.spin_cam_id, stretch=1)
+
+        form_cam.addRow("Thiết bị Camera:", cam_layout)
         layout.addWidget(group_cam)
 
         # Window settings
@@ -401,6 +461,28 @@ class ConfigLauncherDialog(QDialog):
         layout.addStretch()
         return widget
 
+    def _on_camera_combo_changed(self, index: int):
+        data = self.combo_cam.currentData()
+        if data is not None and data >= 0:
+            self.spin_cam_id.blockSignals(True)
+            self.spin_cam_id.setValue(data)
+            self.spin_cam_id.blockSignals(False)
+
+    def _on_camera_spin_changed(self, value: int):
+        self.combo_cam.blockSignals(True)
+        found = False
+        for i in range(self.combo_cam.count()):
+            if self.combo_cam.itemData(i) == value:
+                self.combo_cam.setCurrentIndex(i)
+                found = True
+                break
+        if not found:
+            for i in range(self.combo_cam.count()):
+                if self.combo_cam.itemData(i) == -1:
+                    self.combo_cam.setCurrentIndex(i)
+                    break
+        self.combo_cam.blockSignals(False)
+
     def _on_preset_changed(self, index: int):
         presets = {
             0: (1024, 768),
@@ -414,7 +496,9 @@ class ConfigLauncherDialog(QDialog):
             self.spin_height.setValue(h)
 
     def _load_values_to_ui(self, cfg: dict):
-        self.spin_cam_id.setValue(int(cfg.get("camera_id", 0)))
+        cam_id = int(cfg.get("camera_id", 0))
+        self.spin_cam_id.setValue(cam_id)
+        self._on_camera_spin_changed(cam_id)
         w = int(cfg.get("window_width", 1024))
         h = int(cfg.get("window_height", 768))
         self.spin_width.setValue(w)

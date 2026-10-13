@@ -508,6 +508,77 @@ class TestLandmarkMapping(unittest.TestCase):
         vrm_o_round = map_mediapipe_to_vrm(mp_o_round)
         self.assertGreater(vrm_o_round["o"], 0.3, "Rounded lips with open jaw must activate 'O'")
 
+    def test_closed_mouth_with_high_pucker_and_jaw_never_triggers_o(self):
+        try:
+            from landmark_mapping import map_mediapipe_to_vrm
+        except ImportError:
+            from src.landmark_mapping import map_mediapipe_to_vrm
+
+        # Ground truth: lips are physically touching (lm13 and lm14 gap ~0.002, MAR ~0.02)
+        # Even if camera has high resting mouthPucker (0.91) and jawOpen baseline (0.15)
+        lm_closed = {
+            "lm13": (0.50, 0.600, 0.0), "lm14": (0.50, 0.602, 0.0),
+            "lm61": (0.45, 0.600, 0.0), "lm291": (0.55, 0.600, 0.0),
+            "lm234": (0.35, 0.55, 0.0), "lm454": (0.65, 0.55, 0.0),
+        }
+        mp_closed_noisy = {
+            "jawOpen": 0.15,
+            "mouthPucker": 0.91,
+            "mouthFunnel": 0.05,
+            "mouthClose": 0.10,
+        }
+        vrm = map_mediapipe_to_vrm(mp_closed_noisy, landmarks=lm_closed)
+        self.assertEqual(vrm["o"], 0.0, "Closed mouth must NEVER trigger 'O'")
+        self.assertEqual(vrm["a"], 0.0, "Closed mouth must NEVER trigger 'A'")
+        self.assertEqual(vrm["u"], 0.0, "Resting mouth width must not false trigger 'U'")
+        self.assertEqual(vrm["neutral"], 1.0, "Resting closed mouth must be 100% neutral")
+
+    def test_occluded_mouth_remains_strictly_neutral(self):
+        try:
+            from landmark_mapping import map_mediapipe_to_vrm
+        except ImportError:
+            from src.landmark_mapping import map_mediapipe_to_vrm
+
+        # Mouth out-of-frame or occluded: lower lip near bottom edge (y > 0.96)
+        lm_occluded = {
+            "lm13": (0.50, 0.95, 0.0), "lm14": (0.50, 0.98, 0.0),
+            "lm61": (0.45, 0.95, 0.0), "lm291": (0.55, 0.95, 0.0),
+            "lm152": (0.50, 0.99, 0.0),
+        }
+        mp_noisy = {
+            "jawOpen": 0.20,
+            "mouthPucker": 0.85,
+            "mouthFunnel": 0.20,
+        }
+        vrm = map_mediapipe_to_vrm(mp_noisy, landmarks=lm_occluded)
+        self.assertEqual(vrm["o"], 0.0, "Occluded mouth must NEVER trigger 'O'")
+        self.assertEqual(vrm["a"], 0.0, "Occluded mouth must NEVER trigger 'A'")
+        self.assertEqual(vrm["neutral"], 1.0, "Occluded mouth must be strictly neutral")
+
+    def test_raised_eyebrows_with_closed_mouth_does_not_open_mouth_via_surprised(self):
+        try:
+            from landmark_mapping import map_mediapipe_to_vrm
+        except ImportError:
+            from src.landmark_mapping import map_mediapipe_to_vrm
+
+        # User raises brows slightly, but eyes are normal and mouth is closed
+        lm_closed = {
+            "lm13": (0.50, 0.600, 0.0), "lm14": (0.50, 0.602, 0.0),
+            "lm61": (0.45, 0.600, 0.0), "lm291": (0.55, 0.600, 0.0),
+            "lm234": (0.35, 0.55, 0.0), "lm454": (0.65, 0.55, 0.0),
+        }
+        mp_brow_only = {
+            "browInnerUp": 0.40,
+            "browOuterUpLeft": 0.35,
+            "browOuterUpRight": 0.35,
+            "eyeWideLeft": 0.05,
+            "eyeWideRight": 0.05,
+        }
+        vrm = map_mediapipe_to_vrm(mp_brow_only, landmarks=lm_closed)
+        self.assertEqual(vrm["surprised"], 0.0, "Slight brow raise without wide eyes/mouth must not trigger full-face Surprised")
+        self.assertEqual(vrm["o"], 0.0)
+        self.assertEqual(vrm["neutral"], 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()

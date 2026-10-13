@@ -101,12 +101,15 @@ def map_mediapipe_to_vrc(mp_blendshapes: Dict[str, float]) -> Dict[str, float]:
         + (g("mouthSmileLeft") + g("mouthSmileRight")) * 0.3
     )
 
-    # "oh" - rounded, open mouth
-    vrc["vrc_v_oh"] = _clamp(
-        g("jawOpen") * 0.6
-        + g("mouthPucker") * 0.7
-        + g("mouthFunnel") * 0.3
-    )
+    # "oh" - rounded, open mouth (requires open jaw)
+    if g("jawOpen") > 0.10:
+        vrc["vrc_v_oh"] = _clamp(
+            g("jawOpen") * 0.6
+            + g("mouthFunnel") * 0.6
+            - g("mouthClose") * 0.5
+        )
+    else:
+        vrc["vrc_v_oh"] = 0.0
 
     # "ou" - puckered / protruded lips
     vrc["vrc_v_ou"] = _clamp(
@@ -412,30 +415,49 @@ def map_mediapipe_to_vrm(
 
     # 1. Mouth / Visemes - High sensitivity speech tracking with head-tilt protection
     jaw = g("jawOpen")
+    mouth_close = g("mouthClose")
     
     # If the user is looking down (pitch > 0), the 2D tracking distances compress 
     # and artificially inflate jawOpen and MAR. Apply a proportional penalty.
     tilt_penalty = max(0.0, pitch * 0.15) if pitch > 0 else 0.0
     jaw = max(0.0, jaw - tilt_penalty)
 
-    # Clean resting deadzone: when mouth is closed or head tilts down, jaw_active is 0.0
+    # Check if mouth is occluded or out-of-frame
+    mouth_occluded = False
+    if landmarks:
+        if "lm14" in landmarks and "lm152" in landmarks:
+            if landmarks["lm14"][1] > 0.96 or landmarks["lm152"][1] > 0.98:
+                mouth_occluded = True
+        if "lm61" in landmarks and "lm291" in landmarks:
+            w_mouth = np.linalg.norm(np.array(landmarks["lm61"][:2]) - np.array(landmarks["lm291"][:2]))
+            if w_mouth < 0.015:
+                mouth_occluded = True
+
     if jaw > mouth_dz:
-        # Scale mouth_dz..0.16 to 0.0..1.0
-        jaw_active = _clamp((jaw - mouth_dz) / max(0.05, 0.16 - mouth_dz))
+        jaw_active = _clamp((jaw - mouth_dz) / max(0.05, 0.20 - mouth_dz))
     else:
         jaw_active = 0.0
-
-    if landmarks:
+    mar_active = 0.0
+    if mouth_occluded:
+        raw_speech = 0.0
+    elif landmarks:
         mar = max(0.0, compute_mar(landmarks) - tilt_penalty)
-        # Adapt MAR baseline for fuller/thicker lips based on mouth_open_deadzone
-        mar_base = 0.26 + max(0.0, (mouth_dz - 0.06) * 1.5)
-        if mar > mar_base:
-            mar_active = _clamp((mar - mar_base) / max(0.08, 0.38 - mar_base))
+        # Inner lips are touching/closed when MAR <= 0.045
+        # Normal speaking MAR is 0.06..0.25
+        if mar > 0.045:
+            mar_active = _clamp((mar - 0.045) / 0.15)
         else:
             mar_active = 0.0
-        raw_speech = max(jaw_active, mar_active)
+
+        # Physical Ground Truth: if inner lips are touching (mar_active == 0.0),
+        # mouth is physically closed. Blendshape jawOpen noise or resting offset MUST NOT force mouth open!
+        if mar_active == 0.0 or mouth_close > 0.08:
+            raw_speech = 0.0
+        else:
+            raw_speech = max(mar_active, jaw_active)
     else:
-        raw_speech = jaw_active
+        # Fallback when landmarks are not provided
+        raw_speech = _clamp(jaw_active - mouth_close * 0.5)
 
     # Non-linear boost curve: normal speech opens mouth cleanly (0.50..0.85)
     # Whisper opens (0.25..0.45), wide jaw reaches 1.0
@@ -454,14 +476,34 @@ def map_mediapipe_to_vrm(
         return max(0.0, val - deadzone)
 
     # VOWEL U (Lips puckered forward / chu môi):
-    # Deadzone 0.06 filters resting lip micro-motion (<= 0.05), while gain 3.5 gives responsive puckering
-    u_val = min(u_max, _dz(pucker, 0.06) * 3.5)
+    # Puckering physically narrows mouth corners horizontally.
+    # When resting, lips are flat/uncontracted; when puckered (chu môi), mouth width contracts.
+    if mouth_occluded:
+        u_val = 0.0
+    elif landmarks and "lm61" in landmarks and "lm291" in landmarks and "lm234" in landmarks and "lm454" in landmarks:
+        w_mouth = np.linalg.norm(np.array(landmarks["lm61"][:2]) - np.array(landmarks["lm291"][:2]))
+        w_face = np.linalg.norm(np.array(landmarks["lm234"][:2]) - np.array(landmarks["lm454"][:2]))
+        mouth_ratio = float(w_mouth / w_face) if w_face > 1e-5 else 0.33
+        if mouth_ratio < 0.28 and smile < 0.15 and raw_speech < 0.20:
+            u_val = min(u_max, _clamp((0.28 - mouth_ratio) / 0.06) * _clamp((pucker - 0.20) * 2.0))
+        else:
+            u_val = 0.0
+    else:
+        # Fallback without landmarks (unit tests / synthetic calls)
+        if raw_speech < 0.20 and smile < 0.15:
+            u_val = min(u_max, _dz(pucker, 0.06) * 3.5)
+        else:
+            u_val = 0.0
 
-    # VOWEL O (Lips rounded/funneled with or without jaw open / tròn môi):
-    # Triggered by mouthFunnel or open mouth with lip rounding
-    funnel_act = _dz(funnel, 0.06) * 4.0
-    pucker_open_act = _dz(pucker, 0.06) * 3.5 if raw_speech > 0.06 else 0.0
-    o_val = max(funnel_act, pucker_open_act)
+    # VOWEL O (Lips rounded/funneled with open mouth / tròn miệng mở):
+    # Physically requires an open mouth:
+    # If landmarks are present and inner lips are closed (mar_active == 0.0) or occluded: O is strictly 0.0!
+    if (landmarks and mar_active == 0.0) or mouth_occluded:
+        o_val = 0.0
+    else:
+        funnel_act = _dz(funnel, 0.08) * 3.5
+        pucker_open_act = _dz(pucker, 0.06) * 3.5 if raw_speech > 0.06 else 0.0
+        o_val = _clamp(max(funnel_act, pucker_open_act))
 
     # VOWELS I & E (Horizontal mouth shapes):
     # Stretching mouth sideways (detected via mouthStretch or horizontal smile component)
@@ -580,7 +622,7 @@ def map_mediapipe_to_vrm(
     eye_wide = (g("eyeWideLeft") + g("eyeWideRight")) * 0.5
     frown = (g("mouthFrownLeft") + g("mouthFrownRight")) * 0.5
 
-    if brow_raise > brow_dz and frown < 0.12:
+    if brow_raise > brow_dz and frown < 0.12 and (eye_wide >= 0.15 or raw_speech >= 0.15):
         brow_act = (brow_raise - brow_dz) * brow_gain
         eye_wide_boost = max(0.0, eye_wide - 0.18) * 2.0
         raw_surprised = _clamp(brow_act + eye_wide_boost)

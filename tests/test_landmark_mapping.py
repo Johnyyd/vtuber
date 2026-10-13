@@ -504,7 +504,7 @@ class TestLandmarkMapping(unittest.TestCase):
         self.assertEqual(vrm_o["joy"], 0.0)
 
         # Open jaw + pucker also produces 'O'
-        mp_o_round = {"jawOpen": 0.25, "mouthPucker": 0.15}
+        mp_o_round = {"jawOpen": 0.25, "mouthPucker": 0.22}
         vrm_o_round = map_mediapipe_to_vrm(mp_o_round)
         self.assertGreater(vrm_o_round["o"], 0.3, "Rounded lips with open jaw must activate 'O'")
 
@@ -561,23 +561,166 @@ class TestLandmarkMapping(unittest.TestCase):
         except ImportError:
             from src.landmark_mapping import map_mediapipe_to_vrm
 
-        # User raises brows slightly, but eyes are normal and mouth is closed
+        # User raises brows slightly (resting eyebrow jitter), but eyes are normal and mouth is closed
         lm_closed = {
             "lm13": (0.50, 0.600, 0.0), "lm14": (0.50, 0.602, 0.0),
             "lm61": (0.45, 0.600, 0.0), "lm291": (0.55, 0.600, 0.0),
             "lm234": (0.35, 0.55, 0.0), "lm454": (0.65, 0.55, 0.0),
         }
         mp_brow_only = {
-            "browInnerUp": 0.40,
-            "browOuterUpLeft": 0.35,
-            "browOuterUpRight": 0.35,
-            "eyeWideLeft": 0.05,
-            "eyeWideRight": 0.05,
+            "browInnerUp": 0.14,
+            "browOuterUpLeft": 0.12,
+            "browOuterUpRight": 0.12,
+            "eyeWideLeft": 0.01,
+            "eyeWideRight": 0.01,
         }
         vrm = map_mediapipe_to_vrm(mp_brow_only, landmarks=lm_closed)
-        self.assertEqual(vrm["surprised"], 0.0, "Slight brow raise without wide eyes/mouth must not trigger full-face Surprised")
+        self.assertEqual(vrm["surprised"], 0.0, "Slight brow jitter without wide eyes/mouth must not trigger full-face Surprised")
         self.assertEqual(vrm["o"], 0.0)
         self.assertEqual(vrm["neutral"], 1.0)
+
+    def test_all_five_expressions_trigger_responsively(self):
+        try:
+            from landmark_mapping import map_mediapipe_to_vrm
+        except ImportError:
+            from src.landmark_mapping import map_mediapipe_to_vrm
+
+        # 1. Surprised: eyebrow raise + slight eye widening
+        vrm_surp = map_mediapipe_to_vrm({
+            "browInnerUp": 0.32,
+            "browOuterUpLeft": 0.28,
+            "browOuterUpRight": 0.28,
+            "eyeWideLeft": 0.06,
+            "eyeWideRight": 0.06,
+        })
+        self.assertGreater(vrm_surp["surprised"], 0.4, "Surprised must trigger responsively")
+
+        # 2. U: puckered lips with landmark width contraction
+        lm_pucker = {
+            "lm13": (0.50, 0.600, 0.0), "lm14": (0.50, 0.604, 0.0),
+            "lm61": (0.46, 0.600, 0.0), "lm291": (0.54, 0.600, 0.0),
+            "lm234": (0.35, 0.55, 0.0), "lm454": (0.65, 0.55, 0.0),
+        }
+        vrm_u = map_mediapipe_to_vrm({"mouthPucker": 0.30}, landmarks=lm_pucker)
+        self.assertGreater(vrm_u["u"], 0.35, "U must trigger responsively on pucker")
+
+        # 3. E: open mouth speech with horizontal spread
+        vrm_e = map_mediapipe_to_vrm({
+            "jawOpen": 0.30,
+            "mouthSmileLeft": 0.20,
+            "mouthSmileRight": 0.20,
+            "mouthStretchLeft": 0.08,
+            "mouthStretchRight": 0.08,
+        })
+        self.assertGreater(vrm_e["e"], 0.35, "E must trigger responsively during speech")
+        self.assertEqual(vrm_e["joy"], 0.0, "E must not be wiped out by joy")
+
+        # 4. I: closed/parted mouth with horizontal stretch
+        vrm_i = map_mediapipe_to_vrm({
+            "jawOpen": 0.06,
+            "mouthSmileLeft": 0.20,
+            "mouthSmileRight": 0.20,
+            "mouthStretchLeft": 0.08,
+            "mouthStretchRight": 0.08,
+        })
+        self.assertGreater(vrm_i["i"], 0.35, "I must trigger responsively")
+        self.assertEqual(vrm_i["joy"], 0.0, "I must not be wiped out by joy")
+
+        # 5. Sorrow: natural mouth frown
+        vrm_sad = map_mediapipe_to_vrm({
+            "mouthFrownLeft": 0.12,
+            "mouthFrownRight": 0.12,
+            "browInnerUp": 0.10,
+        })
+        self.assertGreater(vrm_sad["sorrow"], 0.3, "Sorrow must trigger on natural frown")
+
+    def test_speech_viseme_a_and_e_responsiveness_and_latency(self):
+        try:
+            from landmark_mapping import map_mediapipe_to_vrm
+        except ImportError:
+            from src.landmark_mapping import map_mediapipe_to_vrm
+
+        # 1. Natural speaking of 'A': moderate jaw drop, natural mouthClose blendshape fluctuation
+        vrm_speech_a = map_mediapipe_to_vrm({
+            "jawOpen": 0.18,
+            "mouthClose": 0.12,  # Natural fluctuation during speech
+        })
+        self.assertGreater(vrm_speech_a["a"], 0.40, "A must trigger promptly during natural speech even with mouthClose fluctuation")
+
+        # 2. Natural speaking of 'A' with landmarks
+        lm_speech_a = {
+            "lm13": (0.50, 0.585, 0.0), "lm14": (0.50, 0.615, 0.0), # Vertical opening = 0.030
+            "lm61": (0.45, 0.600, 0.0), "lm291": (0.55, 0.600, 0.0), # Width = 0.10 -> MAR = 0.30
+            "lm234": (0.35, 0.55, 0.0), "lm454": (0.65, 0.55, 0.0),
+        }
+        vrm_lm_a = map_mediapipe_to_vrm({"jawOpen": 0.20, "mouthClose": 0.10}, landmarks=lm_speech_a)
+        self.assertGreater(vrm_lm_a["a"], 0.50, "A must trigger with high response on landmark opening")
+
+        # 3. Speaking 'E' with moderate opening and horizontal mouth stretch
+        vrm_speech_e = map_mediapipe_to_vrm({
+            "jawOpen": 0.22,
+            "mouthStretchLeft": 0.10,
+            "mouthStretchRight": 0.10,
+            "mouthSmileLeft": 0.12,
+            "mouthSmileRight": 0.12,
+        })
+        self.assertGreater(vrm_speech_e["e"], 0.40, "E must trigger promptly on speech jaw open + horizontal stretch")
+
+        # 4. Speaking during conversational facial expressions (mild smile or brow raise < 0.60)
+        vrm_convo = map_mediapipe_to_vrm({
+            "jawOpen": 0.25,
+            "mouthSmileLeft": 0.20,
+            "mouthSmileRight": 0.20,
+            "browInnerUp": 0.25,
+        })
+        # Speech must not be wiped out by conversational expressions
+        speech_sum = vrm_convo["a"] + vrm_convo["e"]
+        self.assertGreater(speech_sum, 0.40, "Speech mouth visemes must not be wiped out during conversational expressions")
+
+        # 5. Strictly closed mouth at rest produces zero speech visemes
+        lm_closed = {
+            "lm13": (0.50, 0.600, 0.0), "lm14": (0.50, 0.601, 0.0), # MAR = 0.010 <= 0.025
+            "lm61": (0.45, 0.600, 0.0), "lm291": (0.55, 0.600, 0.0),
+            "lm234": (0.35, 0.55, 0.0), "lm454": (0.65, 0.55, 0.0),
+        }
+        vrm_rest = map_mediapipe_to_vrm({"jawOpen": 0.08, "mouthClose": 0.20}, landmarks=lm_closed)
+        self.assertEqual(vrm_rest["a"], 0.0, "Resting closed mouth must have 0.0 'A'")
+        self.assertEqual(vrm_rest["e"], 0.0, "Resting closed mouth must have 0.0 'E'")
+        self.assertEqual(vrm_rest["i"], 0.0, "Resting closed mouth must have 0.0 'I'")
+        self.assertEqual(vrm_rest["u"], 0.0, "Resting closed mouth must have 0.0 'U'")
+        self.assertEqual(vrm_rest["o"], 0.0, "Resting closed mouth must have 0.0 'O'")
+        self.assertEqual(vrm_rest["neutral"], 1.0, "Resting closed mouth must remain 100% neutral")
+
+    def test_vowel_o_max_clamp_and_sensitivity(self):
+        try:
+            from landmark_mapping import map_mediapipe_to_vrm
+        except ImportError:
+            from src.landmark_mapping import map_mediapipe_to_vrm
+
+        # 1. Extreme funnel / pucker must be strictly clamped by o_max_clamp (never open excessively wide)
+        mp_extreme_o = {
+            "jawOpen": 0.80,
+            "mouthFunnel": 0.85,
+            "mouthPucker": 0.70,
+        }
+        cfg = {"o_max_clamp": 0.55}
+        vrm_extreme = map_mediapipe_to_vrm(mp_extreme_o, config=cfg)
+        self.assertLessEqual(vrm_extreme["o"], 0.55, "O must never exceed o_max_clamp (prevents oversized gaping mouth)")
+        self.assertGreater(vrm_extreme["o"], 0.50, "O must still activate well within clamp")
+
+        # 2. Wide mouth ratio during speech (e.g. saying A or smiling) must suppress accidental O
+        lm_wide_mouth = {
+            "lm13": (0.50, 0.585, 0.0), "lm14": (0.50, 0.615, 0.0),
+            "lm61": (0.43, 0.600, 0.0), "lm291": (0.57, 0.600, 0.0),  # width = 0.14
+            "lm234": (0.35, 0.55, 0.0), "lm454": (0.65, 0.55, 0.0),   # face = 0.30 -> ratio = 0.467 (wide!)
+        }
+        mp_wide_speech = {
+            "jawOpen": 0.30,
+            "mouthFunnel": 0.15,  # slight funnel noise during wide speech
+        }
+        vrm_wide = map_mediapipe_to_vrm(mp_wide_speech, landmarks=lm_wide_mouth)
+        self.assertEqual(vrm_wide["o"], 0.0, "Wide mouth speech must suppress accidental O")
+        self.assertGreater(vrm_wide["a"], 0.40, "Speech A must remain strong and not be overridden by O")
 
 
 if __name__ == "__main__":

@@ -683,20 +683,20 @@
       }
     }
 
-    // When an emotion is confirmed active and stronger than speech vowels:
-    // It overrides other mouth visemes (a, i, u, e, o) and eye blinks to 0
-    if (hasActiveEmotion) {
+    // Only strong deliberate emotions (maxEmotionVal >= 0.60) override mouth visemes.
+    // When user is speaking (any vowel > 0.05), speech vowels drive the mouth in real time!
+    const isSpeaking = vowelKeys.some(k => (targetMotion.vrm[k] || 0) > 0.05);
+    const shouldOverrideVowels = hasActiveEmotion && (maxEmotionVal >= 0.60 || !isSpeaking);
+
+    if (shouldOverrideVowels) {
       for (const k of vowelKeys) {
         targetMotion.vrm[k] = 0.0;
-        currentMotion.vrm[k] = 0.0;
       }
       const otherEyeKeys = ["blink", "blink_l", "blink_r"];
       for (const k of otherEyeKeys) {
         targetMotion.vrm[k] = 0.0;
-        currentMotion.vrm[k] = 0.0;
       }
       targetMotion.vrm["neutral"] = 0.0;
-      currentMotion.vrm["neutral"] = 0.0;
     }
 
     for (const [key, rawTargetVal] of Object.entries(targetMotion.vrm)) {
@@ -712,9 +712,18 @@
         }
       }
 
-      // Asymmetric LERP: snap close instantly (0.95), open smoothly (0.35)
-      const isClosing = effectiveTarget > currentMotion.vrm[key];
-      const lerpFactor = isBlink ? (isClosing ? 0.95 : 0.35) : 0.45;
+      // Responsive LERP interpolation:
+      // Blinks: fast close (0.95), smooth open (0.35)
+      // Speech vowels (A, E, I, O, U): snappy open (0.75) for real-time lip sync, smooth close (0.55)
+      // Other emotions: 0.45
+      const isSpeechVowel = vowelKeys.includes(key);
+      const isTargetHigher = effectiveTarget > currentMotion.vrm[key];
+      let lerpFactor = 0.45;
+      if (isBlink) {
+        lerpFactor = isTargetHigher ? 0.95 : 0.35;
+      } else if (isSpeechVowel) {
+        lerpFactor = isTargetHigher ? 0.75 : 0.55;
+      }
 
       currentMotion.vrm[key] +=
         (effectiveTarget - currentMotion.vrm[key]) * lerpFactor;

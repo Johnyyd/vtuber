@@ -404,9 +404,12 @@ def map_mediapipe_to_vrm(
     blink_dz = float(cfg.get("blink_deadzone", 0.10))
     blink_snap = float(cfg.get("blink_snap_thresh", 0.22))
     brow_dz = float(cfg.get("brow_raise_deadzone", 0.08))
-    brow_gain = float(cfg.get("brow_raise_gain", 2.2))
-    frown_dz = float(cfg.get("frown_deadzone", 0.08))
-    frown_gain = float(cfg.get("frown_gain", 2.0))
+    brow_gain = float(cfg.get("brow_raise_gain", 2.4))
+    frown_dz = float(cfg.get("frown_deadzone", 0.04))
+    frown_gain = float(cfg.get("frown_gain", 3.2))
+    o_dz = float(cfg.get("o_deadzone", 0.09))
+    o_gain = float(cfg.get("o_gain", 2.6))
+    o_max = float(cfg.get("o_max_clamp", 0.55))
 
     def g(name: str) -> float:
         return mp_blendshapes.get(name, 0.0)
@@ -434,35 +437,35 @@ def map_mediapipe_to_vrm(
                 mouth_occluded = True
 
     if jaw > mouth_dz:
-        jaw_active = _clamp((jaw - mouth_dz) / max(0.05, 0.20 - mouth_dz))
+        jaw_active = _clamp((jaw - mouth_dz) / max(0.04, 0.18 - mouth_dz))
     else:
         jaw_active = 0.0
     mar_active = 0.0
     if mouth_occluded:
         raw_speech = 0.0
     elif landmarks:
-        mar = max(0.0, compute_mar(landmarks) - tilt_penalty)
-        # Inner lips are touching/closed when MAR <= 0.045
-        # Normal speaking MAR is 0.06..0.25
-        if mar > 0.045:
-            mar_active = _clamp((mar - 0.045) / 0.15)
+        mar = compute_mar(landmarks)
+        # Inner lips are touching/closed when MAR <= 0.025
+        # Normal speaking MAR is 0.035..0.20
+        if mar > 0.025:
+            mar_active = _clamp((mar - 0.025) / 0.09)
         else:
             mar_active = 0.0
 
         # Physical Ground Truth: if inner lips are touching (mar_active == 0.0),
         # mouth is physically closed. Blendshape jawOpen noise or resting offset MUST NOT force mouth open!
-        if mar_active == 0.0 or mouth_close > 0.08:
+        # When lips separate (mar_active > 0.0), mouth opens instantly with zero lag!
+        if mar_active == 0.0 or mouth_close > 0.40:
             raw_speech = 0.0
         else:
             raw_speech = max(mar_active, jaw_active)
     else:
         # Fallback when landmarks are not provided
-        raw_speech = _clamp(jaw_active - mouth_close * 0.5)
+        raw_speech = _clamp(jaw_active - mouth_close * 0.3)
 
-    # Non-linear boost curve: normal speech opens mouth cleanly (0.50..0.85)
-    # Whisper opens (0.25..0.45), wide jaw reaches 1.0
+    # Dynamic speech boost curve: opens immediately on natural speech
     if raw_speech > 0.0:
-        raw_a = _clamp(pow(raw_speech, 0.70) * 1.25)
+        raw_a = _clamp(pow(raw_speech, 0.65) * 1.35)
     else:
         raw_a = 0.0
 
@@ -475,22 +478,32 @@ def map_mediapipe_to_vrm(
     def _dz(val: float, deadzone: float = 0.02) -> float:
         return max(0.0, val - deadzone)
 
-    # VOWEL U (Lips puckered forward / chu môi):
-    # Puckering physically narrows mouth corners horizontally.
-    # When resting, lips are flat/uncontracted; when puckered (chu môi), mouth width contracts.
-    if mouth_occluded:
-        u_val = 0.0
-    elif landmarks and "lm61" in landmarks and "lm291" in landmarks and "lm234" in landmarks and "lm454" in landmarks:
+    # Physical landmark mouth dimensions
+    mouth_ratio = 0.33
+    lm_horiz = 0.0
+    if landmarks and "lm61" in landmarks and "lm291" in landmarks and "lm234" in landmarks and "lm454" in landmarks:
         w_mouth = np.linalg.norm(np.array(landmarks["lm61"][:2]) - np.array(landmarks["lm291"][:2]))
         w_face = np.linalg.norm(np.array(landmarks["lm234"][:2]) - np.array(landmarks["lm454"][:2]))
         mouth_ratio = float(w_mouth / w_face) if w_face > 1e-5 else 0.33
-        if mouth_ratio < 0.28 and smile < 0.15 and raw_speech < 0.20:
-            u_val = min(u_max, _clamp((0.28 - mouth_ratio) / 0.06) * _clamp((pucker - 0.20) * 2.0))
+        if mouth_ratio > 0.34:
+            lm_horiz = _clamp((mouth_ratio - 0.34) / 0.07)
+
+    # VOWEL U (Lips puckered forward / chu môi):
+    # Puckering physically contracts mouth corners horizontally (mouth_ratio < 0.32).
+    # When resting, lips are flat/uncontracted (mouth_ratio >= 0.32); when puckered, ratio contracts.
+    if mouth_occluded:
+        u_val = 0.0
+    elif landmarks and "lm61" in landmarks and "lm291" in landmarks and "lm234" in landmarks and "lm454" in landmarks:
+        if mouth_ratio < 0.32 and smile < 0.18 and raw_speech < 0.55:
+            ratio_act = _clamp((0.32 - mouth_ratio) / 0.07)
+            pucker_act = _clamp((pucker - 0.08) * 2.8) if pucker > 0.08 else 0.0
+            u_cand = max(ratio_act, pucker_act) * 0.7 + min(ratio_act, pucker_act) * 0.5
+            u_val = min(u_max, u_cand * 1.3)
         else:
             u_val = 0.0
     else:
         # Fallback without landmarks (unit tests / synthetic calls)
-        if raw_speech < 0.20 and smile < 0.15:
+        if raw_speech < 0.55 and smile < 0.18:
             u_val = min(u_max, _dz(pucker, 0.06) * 3.5)
         else:
             u_val = 0.0
@@ -501,25 +514,40 @@ def map_mediapipe_to_vrm(
     if (landmarks and mar_active == 0.0) or mouth_occluded:
         o_val = 0.0
     else:
-        funnel_act = _dz(funnel, 0.08) * 3.5
-        pucker_open_act = _dz(pucker, 0.06) * 3.5 if raw_speech > 0.06 else 0.0
-        o_val = _clamp(max(funnel_act, pucker_open_act))
+        funnel_act = _dz(funnel, o_dz) * o_gain
+        pucker_open_act = _dz(pucker, o_dz) * (o_gain * 0.92) if raw_speech > 0.08 else 0.0
+        cand_o = max(funnel_act, pucker_open_act)
+        # Suppress O if mouth is stretched wide horizontally (user is saying A, E, or smiling)
+        if landmarks and mouth_ratio > 0.34:
+            cand_o *= max(0.0, 1.0 - (mouth_ratio - 0.34) / 0.04)
+        # Apply o_max_clamp so O morph never opens excessively wide
+        o_val = min(o_max, _clamp(cand_o))
 
     # VOWELS I & E (Horizontal mouth shapes):
-    # Stretching mouth sideways (detected via mouthStretch or horizontal smile component)
+    # Stretching mouth sideways (detected via mouthStretch or horizontal smile/landmark component)
     horiz_stretch = max(stretch, (g("mouthStretchLeft") + g("mouthStretchRight")) * 0.5)
     horiz_smile = max(0.0, smile - 0.04)
-    horiz_active = max(horiz_stretch * 2.2, horiz_smile * 1.6)
 
-    if horiz_active > 0.06:
-        # If jaw is relatively closed (< 0.22): Vowel "I"
-        # If jaw is open (>= 0.22): Vowel "E"
-        if raw_speech < 0.22:
-            i_val = _clamp(_dz(horiz_active, 0.04) * 2.6)
+    # For speech I/E, blend landmark stretch and blendshapes
+    blend_horiz = max(horiz_stretch * 2.5, horiz_smile * 1.6)
+    horiz_active = max(blend_horiz, lm_horiz)
+
+    if horiz_active > 0.04:
+        horiz_mag = _clamp(_dz(horiz_active, 0.02) * 2.8)
+        # Speech biomechanics:
+        # Close front unrounded vowel 'I' has teeth close together (raw_speech < 0.10)
+        # Open-mid front unrounded vowel 'E' has jaw noticeably open (raw_speech >= 0.10)
+        if raw_speech <= 0.08:
+            i_val = horiz_mag
             e_val = 0.0
-        else:
-            e_val = _clamp(_dz(horiz_active, 0.04) * 2.6)
+        elif raw_speech >= 0.18:
+            e_val = horiz_mag
             i_val = 0.0
+        else:
+            # Smooth interpolation between I and E across transition zone (0.08 .. 0.18)
+            t_e = (raw_speech - 0.08) / 0.10
+            e_val = horiz_mag * t_e
+            i_val = horiz_mag * (1.0 - t_e)
     else:
         i_val = 0.0
         e_val = 0.0
@@ -531,12 +559,12 @@ def map_mediapipe_to_vrm(
 
     # Prevent U and O fighting each other
     if vrm["o"] > vrm["u"]:
-        vrm["u"] = max(0.0, vrm["u"] - vrm["o"] * 0.6)
+        vrm["u"] = max(0.0, vrm["u"] - vrm["o"] * 0.5)
 
     # VOWEL A (Vertical jaw drop):
     # Attenuated gently when U, O, I, E are strongly formed
     raw_a_clean = _dz(raw_a, 0.02) * mouth_gain
-    vrm["a"] = _clamp(max(0.0, raw_a_clean - vrm["u"] * 0.7 - vrm["o"] * 0.8 - vrm["i"] * 0.6 - vrm["e"] * 0.4))
+    vrm["a"] = _clamp(max(0.0, raw_a_clean - vrm["u"] * 0.7 - vrm["o"] * 0.5 - vrm["i"] * 0.5 - vrm["e"] * 0.3))
 
     vrm["neutral"] = _clamp(1.0 - (vrm["a"] + vrm["i"] + vrm["u"] + vrm["e"] + vrm["o"]))
 
@@ -607,8 +635,12 @@ def map_mediapipe_to_vrm(
         raw_joy = 0.0
 
     # Distinguish genuine Joy (mouth corners pulled upwards) from horizontal speech stretch (I/E):
-    # When user is stretching lips horizontally for I/E without smiling upwards (stretch >= smile - 0.10):
-    if stretch > 0.10 and stretch >= (smile - 0.10):
+    # If user is articulating speech for I or E:
+    # - If horiz_active > 0.05 and effective_smile is not a full-face beaming smile (< 0.65):
+    #   Joy is suppressed so it never wipes out I and E!
+    if horiz_active > 0.05 and effective_smile < 0.65:
+        raw_joy = 0.0
+    elif stretch > 0.06 and stretch >= (smile - 0.12):
         raw_joy = 0.0
 
     raw_angry = _clamp((g("browDownLeft") + g("browDownRight")) * 1.5)
@@ -622,17 +654,38 @@ def map_mediapipe_to_vrm(
     eye_wide = (g("eyeWideLeft") + g("eyeWideRight")) * 0.5
     frown = (g("mouthFrownLeft") + g("mouthFrownRight")) * 0.5
 
-    if brow_raise > brow_dz and frown < 0.12 and (eye_wide >= 0.15 or raw_speech >= 0.15):
+    # Surprise detection:
+    # Naturally occurs with raised eyebrows PLUS either:
+    # 1. Eyes widened (eye_wide >= 0.04)
+    # 2. Mouth gasped/opened (raw_speech >= 0.06 or jaw_active >= 0.06)
+    # 3. Deliberate eyebrow raising (brow_raise >= brow_dz + 0.10)
+    is_surprised_marker = (eye_wide >= 0.04 or raw_speech >= 0.06 or brow_raise >= (brow_dz + 0.10))
+    if not mouth_occluded and brow_raise > brow_dz and frown < 0.15 and is_surprised_marker:
         brow_act = (brow_raise - brow_dz) * brow_gain
-        eye_wide_boost = max(0.0, eye_wide - 0.18) * 2.0
+        eye_wide_boost = max(0.0, eye_wide - 0.03) * 2.5
         raw_surprised = _clamp(brow_act + eye_wide_boost)
     else:
         raw_surprised = 0.0
 
-    # Sorrow requires genuine mouth frown or sad knitted inner brows (inner up while outer down)
+    # Sorrow requires mouth frown or sad knitted inner brows (inner up while outer down)
     knitted_sad_brow = max(0.0, brow_inner - (brow_up_l + brow_up_r) * 0.5)
-    if frown > frown_dz or knitted_sad_brow > 0.15:
-        raw_sorrow = _clamp(max((frown - frown_dz) * frown_gain if frown > frown_dz else 0.0, (knitted_sad_brow - 0.15) * 2.0))
+    
+    # Landmark mouth corner droop:
+    # Measure corner height relative to the middle of the lips (midline of lm13 and lm14).
+    # Only active when mouth is closed/resting (raw_speech < 0.12), to prevent speech mouth opening from being misclassified as sorrow.
+    lm_frown = 0.0
+    if raw_speech < 0.12 and landmarks and "lm61" in landmarks and "lm291" in landmarks and "lm13" in landmarks and "lm14" in landmarks:
+        corner_y = (landmarks["lm61"][1] + landmarks["lm291"][1]) * 0.5
+        center_y = (landmarks["lm13"][1] + landmarks["lm14"][1]) * 0.5
+        droop_delta = corner_y - center_y
+        if droop_delta > 0.005:
+            lm_frown = _clamp((droop_delta - 0.005) / 0.015)
+
+    effective_frown = max(frown, lm_frown * 0.25)
+    if smile < 0.15 and (effective_frown > frown_dz or knitted_sad_brow > 0.05):
+        frown_act = (effective_frown - frown_dz) * frown_gain if effective_frown > frown_dz else 0.0
+        brow_sad_act = (knitted_sad_brow - 0.05) * 3.0 if knitted_sad_brow > 0.05 else 0.0
+        raw_sorrow = _clamp(max(frown_act, brow_sad_act) + min(frown_act, brow_sad_act) * 0.5)
     else:
         raw_sorrow = 0.0
 
@@ -647,8 +700,8 @@ def map_mediapipe_to_vrm(
     dominant_emo = max(emotions, key=emotions.get)
     max_emo_val = emotions[dominant_emo]
 
-    # Deliberate emotion detection threshold (>= 0.25)
-    has_active_emotion = max_emo_val >= 0.25
+    # Deliberate emotion detection threshold (>= 0.22)
+    has_active_emotion = max_emo_val >= 0.22
 
     for emo in ["joy", "surprised", "sorrow", "angry"]:
         vrm[emo] = max_emo_val if (emo == dominant_emo and has_active_emotion) else 0.0
@@ -656,9 +709,10 @@ def map_mediapipe_to_vrm(
     vrm["fun"] = 0.0
 
     # If an emotion is confirmed active:
-    # It OVERRIDES all other mouth visemes (a, i, u, e, o) and eye blinks (blink, blink_l, blink_r)
-    # The active emotion preset defines the complete face expression cleanly without any mesh collision!
-    if has_active_emotion:
+    # Strong deliberate emotions (max_emo_val >= 0.60) override mouth & blinks for dedicated poses.
+    # When actively speaking (raw_speech >= 0.08 or i/e/u/o active), speech vowels drive the mouth in real time!
+    is_actively_speaking = raw_speech >= 0.08 or vrm["i"] >= 0.08 or vrm["e"] >= 0.08 or vrm["u"] >= 0.08 or vrm["o"] >= 0.08
+    if has_active_emotion and (max_emo_val >= 0.60 or not is_actively_speaking):
         vrm["a"] = 0.0
         vrm["i"] = 0.0
         vrm["u"] = 0.0

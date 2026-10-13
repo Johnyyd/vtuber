@@ -25,13 +25,21 @@ smile_gain = 2.80
 
 # Khau hinh mieng noi (Speech / A):
 # - mouth_open_deadzone: Diem bat dau mo mieng (mac dinh: 0.06, pham vi: 0.02 - 0.15)
-# - mouth_open_gain: Do nhay mo mieng khi noi (mac dinh: 1.5, pham vi: 1.0 - 3.0)
-mouth_open_deadzone = 0.09
-mouth_open_gain = 1.60
+# - mouth_open_gain: Do nhay mo mieng khi noi (mac dinh: 1.8, pham vi: 1.0 - 3.0)
+mouth_open_deadzone = 0.06
+mouth_open_gain = 1.80
 
 # Khau hinh chu moi U (Pucker):
 # - u_max_clamp: Gioi han toi da khau hinh U tranh chập 2 mep mieng (mac dinh: 0.60, pham vi: 0.40 - 0.70)
 u_max_clamp = 0.58
+
+# Khau hinh tron mieng O (Funnel / Round):
+# - o_deadzone: Diem bat dau nhan khau hinh O (mac dinh: 0.10, pham vi: 0.05 - 0.20)
+# - o_gain: Do nhay khau hinh O (mac dinh: 2.4, pham vi: 1.0 - 4.0)
+# - o_max_clamp: Gioi han toi da do mo khau hinh O tranh mo mieng qua to (mac dinh: 0.55, pham vi: 0.35 - 0.75)
+o_deadzone = 0.10
+o_gain = 2.40
+o_max_clamp = 0.55
 
 # Chop mat (Blink):
 # - blink_deadzone: Diem bat dau nhan chop mat (mac dinh: 0.10, pham vi: 0.05 - 0.20)
@@ -41,15 +49,15 @@ blink_snap_thresh = 0.25
 
 # Nhuong chan may (Surprised):
 # - brow_raise_deadzone: Diem bat dau nhan nhuong may (mac dinh: 0.08, pham vi: 0.02 - 0.20)
-# - brow_raise_gain: Do nhay bieu cam ngac nhien (mac dinh: 2.2, pham vi: 1.0 - 4.0)
-brow_raise_deadzone = 0.10
-brow_raise_gain = 2.20
+# - brow_raise_gain: Do nhay bieu cam ngac nhien (mac dinh: 2.4, pham vi: 1.0 - 4.0)
+brow_raise_deadzone = 0.08
+brow_raise_gain = 2.40
 
 # Meu / Buon (Sorrow):
-# - frown_deadzone: Diem bat dau nhan khoe mieng triu xuong (mac dinh: 0.08, pham vi: 0.02 - 0.20)
-# - frown_gain: Do nhay bieu cam buon (mac dinh: 2.0, pham vi: 1.0 - 4.0)
-frown_deadzone = 0.10
-frown_gain = 2.20
+# - frown_deadzone: Diem bat dau nhan khoe mieng triu xuong (mac dinh: 0.04, pham vi: 0.02 - 0.20)
+# - frown_gain: Do nhay bieu cam buon (mac dinh: 3.2, pham vi: 1.0 - 5.0)
+frown_deadzone = 0.04
+frown_gain = 3.20
 
 
 [CAMERA_AND_FILTER]

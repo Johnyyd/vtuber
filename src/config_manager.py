@@ -28,15 +28,18 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     # [TRACKING_SENSITIVITY]
     "smile_deadzone": 0.10,
     "smile_gain": 2.8,
-    "mouth_open_deadzone": 0.09,
-    "mouth_open_gain": 1.6,
+    "mouth_open_deadzone": 0.06,
+    "mouth_open_gain": 1.8,
     "u_max_clamp": 0.58,
+    "o_deadzone": 0.10,
+    "o_gain": 2.4,
+    "o_max_clamp": 0.55,
     "blink_deadzone": 0.13,
     "blink_snap_thresh": 0.25,
-    "brow_raise_deadzone": 0.10,
-    "brow_raise_gain": 2.2,
-    "frown_deadzone": 0.10,
-    "frown_gain": 2.2,
+    "brow_raise_deadzone": 0.08,
+    "brow_raise_gain": 2.4,
+    "frown_deadzone": 0.04,
+    "frown_gain": 3.2,
 
     # [CAMERA_AND_FILTER]
     "pitch_offset_deg": 18.0,
@@ -78,13 +81,21 @@ smile_gain = {cfg['smile_gain']:.2f}
 
 # Khau hinh mieng noi (Speech / A):
 # - mouth_open_deadzone: Diem bat dau mo mieng (mac dinh: 0.06, pham vi: 0.02 - 0.15)
-# - mouth_open_gain: Do nhay mo mieng khi noi (mac dinh: 1.5, pham vi: 1.0 - 3.0)
+# - mouth_open_gain: Do nhay mo mieng khi noi (mac dinh: 1.8, pham vi: 1.0 - 3.0)
 mouth_open_deadzone = {cfg['mouth_open_deadzone']:.2f}
 mouth_open_gain = {cfg['mouth_open_gain']:.2f}
 
 # Khau hinh chu moi U (Pucker):
 # - u_max_clamp: Gioi han toi da khau hinh U tranh chập 2 mep mieng (mac dinh: 0.60, pham vi: 0.40 - 0.70)
 u_max_clamp = {cfg['u_max_clamp']:.2f}
+
+# Khau hinh tron mieng O (Funnel / Round):
+# - o_deadzone: Diem bat dau nhan khau hinh O (mac dinh: 0.10, pham vi: 0.05 - 0.20)
+# - o_gain: Do nhay khau hinh O (mac dinh: 2.4, pham vi: 1.0 - 4.0)
+# - o_max_clamp: Gioi han toi da do mo khau hinh O tranh mo mieng qua to (mac dinh: 0.55, pham vi: 0.35 - 0.75)
+o_deadzone = {cfg['o_deadzone']:.2f}
+o_gain = {cfg['o_gain']:.2f}
+o_max_clamp = {cfg['o_max_clamp']:.2f}
 
 # Chop mat (Blink):
 # - blink_deadzone: Diem bat dau nhan chop mat (mac dinh: 0.10, pham vi: 0.05 - 0.20)
@@ -94,13 +105,13 @@ blink_snap_thresh = {cfg['blink_snap_thresh']:.2f}
 
 # Nhuong chan may (Surprised):
 # - brow_raise_deadzone: Diem bat dau nhan nhuong may (mac dinh: 0.08, pham vi: 0.02 - 0.20)
-# - brow_raise_gain: Do nhay bieu cam ngac nhien (mac dinh: 2.2, pham vi: 1.0 - 4.0)
+# - brow_raise_gain: Do nhay bieu cam ngac nhien (mac dinh: 2.4, pham vi: 1.0 - 4.0)
 brow_raise_deadzone = {cfg['brow_raise_deadzone']:.2f}
 brow_raise_gain = {cfg['brow_raise_gain']:.2f}
 
 # Meu / Buon (Sorrow):
-# - frown_deadzone: Diem bat dau nhan khoe mieng triu xuong (mac dinh: 0.08, pham vi: 0.02 - 0.20)
-# - frown_gain: Do nhay bieu cam buon (mac dinh: 2.0, pham vi: 1.0 - 4.0)
+# - frown_deadzone: Diem bat dau nhan khoe mieng triu xuong (mac dinh: 0.04, pham vi: 0.02 - 0.20)
+# - frown_gain: Do nhay bieu cam buon (mac dinh: 3.2, pham vi: 1.0 - 5.0)
 frown_deadzone = {cfg['frown_deadzone']:.2f}
 frown_gain = {cfg['frown_gain']:.2f}
 
@@ -166,6 +177,9 @@ def load_config(file_path: str = DEFAULT_CONFIG_PATH) -> Dict[str, Any]:
     config["mouth_open_deadzone"] = get_float("TRACKING_SENSITIVITY", "mouth_open_deadzone", config["mouth_open_deadzone"])
     config["mouth_open_gain"] = get_float("TRACKING_SENSITIVITY", "mouth_open_gain", config["mouth_open_gain"])
     config["u_max_clamp"] = get_float("TRACKING_SENSITIVITY", "u_max_clamp", config["u_max_clamp"])
+    config["o_deadzone"] = get_float("TRACKING_SENSITIVITY", "o_deadzone", config["o_deadzone"])
+    config["o_gain"] = get_float("TRACKING_SENSITIVITY", "o_gain", config["o_gain"])
+    config["o_max_clamp"] = get_float("TRACKING_SENSITIVITY", "o_max_clamp", config["o_max_clamp"])
     config["blink_deadzone"] = get_float("TRACKING_SENSITIVITY", "blink_deadzone", config["blink_deadzone"])
     config["blink_snap_thresh"] = get_float("TRACKING_SENSITIVITY", "blink_snap_thresh", config["blink_snap_thresh"])
     config["brow_raise_deadzone"] = get_float("TRACKING_SENSITIVITY", "brow_raise_deadzone", config["brow_raise_deadzone"])

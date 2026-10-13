@@ -375,6 +375,24 @@ class ConfigLauncherDialog(QDialog):
         self.spin_u_max.setSingleStep(0.02)
         self.spin_u_max.setDecimals(2)
         form_mouth.addRow("Giới hạn khẩu hình U (tránh chập mép):", self.spin_u_max)
+
+        self.spin_o_dz = QDoubleSpinBox()
+        self.spin_o_dz.setRange(0.04, 0.25)
+        self.spin_o_dz.setSingleStep(0.01)
+        self.spin_o_dz.setDecimals(2)
+        form_mouth.addRow("Điểm chết tròn miệng O (Funnel Deadzone):", self.spin_o_dz)
+
+        self.spin_o_gain = QDoubleSpinBox()
+        self.spin_o_gain.setRange(1.0, 4.0)
+        self.spin_o_gain.setSingleStep(0.1)
+        self.spin_o_gain.setDecimals(1)
+        form_mouth.addRow("Độ nhạy tròn miệng O (Funnel Gain):", self.spin_o_gain)
+
+        self.spin_o_max = QDoubleSpinBox()
+        self.spin_o_max.setRange(0.35, 0.80)
+        self.spin_o_max.setSingleStep(0.02)
+        self.spin_o_max.setDecimals(2)
+        form_mouth.addRow("Giới hạn khẩu hình O (tránh mở quá to):", self.spin_o_max)
         layout.addWidget(group_mouth)
 
         # Brows & Emotion
@@ -399,6 +417,12 @@ class ConfigLauncherDialog(QDialog):
         self.spin_frown_dz.setSingleStep(0.01)
         self.spin_frown_dz.setDecimals(2)
         form_emotion.addRow("Điểm chết bĩu môi buồn (Sorrow):", self.spin_frown_dz)
+
+        self.spin_frown_gain = QDoubleSpinBox()
+        self.spin_frown_gain.setRange(1.0, 5.0)
+        self.spin_frown_gain.setSingleStep(0.1)
+        self.spin_frown_gain.setDecimals(1)
+        form_emotion.addRow("Độ nhạy bĩu môi buồn (Sorrow Gain):", self.spin_frown_gain)
         layout.addWidget(group_emotion)
 
         layout.addStretch()
@@ -514,13 +538,17 @@ class ConfigLauncherDialog(QDialog):
 
         self.spin_smile_dz.setValue(float(cfg.get("smile_deadzone", 0.10)))
         self.spin_smile_gain.setValue(float(cfg.get("smile_gain", 2.8)))
-        self.spin_mouth_dz.setValue(float(cfg.get("mouth_open_deadzone", 0.09)))
-        self.spin_mouth_gain.setValue(float(cfg.get("mouth_open_gain", 1.6)))
+        self.spin_mouth_dz.setValue(float(cfg.get("mouth_open_deadzone", 0.06)))
+        self.spin_mouth_gain.setValue(float(cfg.get("mouth_open_gain", 1.8)))
         self.spin_u_max.setValue(float(cfg.get("u_max_clamp", 0.58)))
+        self.spin_o_dz.setValue(float(cfg.get("o_deadzone", 0.10)))
+        self.spin_o_gain.setValue(float(cfg.get("o_gain", 2.4)))
+        self.spin_o_max.setValue(float(cfg.get("o_max_clamp", 0.55)))
 
-        self.spin_brow_dz.setValue(float(cfg.get("brow_raise_deadzone", 0.10)))
-        self.spin_brow_gain.setValue(float(cfg.get("brow_raise_gain", 2.2)))
-        self.spin_frown_dz.setValue(float(cfg.get("frown_deadzone", 0.10)))
+        self.spin_brow_dz.setValue(float(cfg.get("brow_raise_deadzone", 0.08)))
+        self.spin_brow_gain.setValue(float(cfg.get("brow_raise_gain", 2.4)))
+        self.spin_frown_dz.setValue(float(cfg.get("frown_deadzone", 0.04)))
+        self.spin_frown_gain.setValue(float(cfg.get("frown_gain", 3.2)))
 
         self.spin_blink_dz.setValue(float(cfg.get("blink_deadzone", 0.13)))
         self.spin_blink_snap.setValue(float(cfg.get("blink_snap_thresh", 0.25)))
@@ -541,10 +569,13 @@ class ConfigLauncherDialog(QDialog):
             "mouth_open_deadzone": self.spin_mouth_dz.value(),
             "mouth_open_gain": self.spin_mouth_gain.value(),
             "u_max_clamp": self.spin_u_max.value(),
+            "o_deadzone": self.spin_o_dz.value(),
+            "o_gain": self.spin_o_gain.value(),
+            "o_max_clamp": self.spin_o_max.value(),
             "brow_raise_deadzone": self.spin_brow_dz.value(),
             "brow_raise_gain": self.spin_brow_gain.value(),
             "frown_deadzone": self.spin_frown_dz.value(),
-            "frown_gain": self.current_config.get("frown_gain", 2.0),
+            "frown_gain": self.spin_frown_gain.value(),
 
             "blink_deadzone": self.spin_blink_dz.value(),
             "blink_snap_thresh": self.spin_blink_snap.value(),

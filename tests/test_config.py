@@ -29,6 +29,7 @@ class TestConfigManager(unittest.TestCase):
         self.assertEqual(cfg["camera_id"], DEFAULT_CONFIG["camera_id"])
         self.assertEqual(cfg["smile_deadzone"], DEFAULT_CONFIG["smile_deadzone"])
         self.assertEqual(cfg["u_max_clamp"], DEFAULT_CONFIG["u_max_clamp"])
+        self.assertEqual(cfg["o_max_clamp"], DEFAULT_CONFIG["o_max_clamp"])
 
     def test_save_and_reload_modified_config(self):
         custom_cfg = dict(DEFAULT_CONFIG)
@@ -36,6 +37,7 @@ class TestConfigManager(unittest.TestCase):
         custom_cfg["smile_deadzone"] = 0.12
         custom_cfg["smile_gain"] = 3.5
         custom_cfg["u_max_clamp"] = 0.55
+        custom_cfg["o_max_clamp"] = 0.50
         custom_cfg["show_launcher"] = False
 
         success = save_config(custom_cfg, self.config_path)
@@ -46,6 +48,7 @@ class TestConfigManager(unittest.TestCase):
         self.assertAlmostEqual(loaded["smile_deadzone"], 0.12, places=2)
         self.assertAlmostEqual(loaded["smile_gain"], 3.5, places=2)
         self.assertAlmostEqual(loaded["u_max_clamp"], 0.55, places=2)
+        self.assertAlmostEqual(loaded["o_max_clamp"], 0.50, places=2)
         self.assertFalse(loaded["show_launcher"])
 
     def test_corrupted_config_falls_back_to_defaults(self):

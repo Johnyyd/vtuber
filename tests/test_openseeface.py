@@ -111,10 +111,13 @@ class TestOpenSeeFaceMapping(unittest.TestCase):
         self.assertIn("vrc_v_aa", vrc)
         self.assertIn("vrc_blink", vrc)
 
-        # Check pose
+        # Check pose (converted to radians and clamped within [-1.0, 1.0])
         self.assertIsInstance(pose["pitch"], float)
         self.assertIsInstance(pose["yaw"], float)
         self.assertIsInstance(pose["roll"], float)
+        self.assertTrue(-1.0 <= pose["pitch"] <= 1.0)
+        self.assertTrue(-1.0 <= pose["yaw"] <= 1.0)
+        self.assertTrue(-1.0 <= pose["roll"] <= 1.0)
 
         # Check gaze
         self.assertTrue(-1.0 <= gaze["x"] <= 1.0)

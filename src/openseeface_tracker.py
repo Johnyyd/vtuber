@@ -247,27 +247,29 @@ def map_openseeface_to_vrc(face: Any) -> Dict[str, float]:
 
 def extract_head_pose(face: Any, pitch_offset_deg: float = 18.0) -> Dict[str, float]:
     """
-    Extract 3D head rotation (Pitch, Yaw, Roll) from OpenSeeFace Euler angles in degrees.
+    Extract 3D head rotation (Pitch, Yaw, Roll) from OpenSeeFace Euler angles in degrees,
+    and convert to radians for the 3D VRM skeletal pipeline.
     """
     euler = getattr(face, "euler", None)
     if euler is None or len(euler) < 3:
         return {"pitch": 0.0, "yaw": 0.0, "roll": 0.0}
 
-    # OpenSeeFace Euler angles: euler[0] = Pitch, euler[1] = Yaw, euler[2] = Roll
+    # OpenSeeFace Euler angles: euler[0] = Pitch, euler[1] = Yaw, euler[2] = Roll (in degrees)
     raw_pitch = float(euler[0])
     raw_yaw = float(euler[1])
     raw_roll = float(euler[2])
 
-    # Apply webcam pitch compensation offset
-    pitch = raw_pitch + pitch_offset_deg
-    # Mirror yaw for intuitive camera mirror interaction
-    yaw = -raw_yaw
-    roll = raw_roll
+    # Convert degrees to radians (Three.js skeletal rotations require radians, not degrees)
+    deg2rad = float(np.pi / 180.0)
+    pitch = (raw_pitch + pitch_offset_deg) * deg2rad
+    yaw = -raw_yaw * deg2rad
+    roll = raw_roll * deg2rad
 
+    # Clamp rotation angles within realistic human cervical limits [-1.0, 1.0] rad (~ +-57 deg)
     return {
-        "pitch": float(pitch),
-        "yaw": float(yaw),
-        "roll": float(roll),
+        "pitch": float(np.clip(pitch, -1.0, 1.0)),
+        "yaw": float(np.clip(yaw, -1.0, 1.0)),
+        "roll": float(np.clip(roll, -1.0, 1.0)),
     }
 
 

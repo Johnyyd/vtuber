@@ -138,8 +138,8 @@
     // 5. Setup window size customization controls
     setupWindowSizeControls();
 
-    // 6. Load VRM Model (Yong)
-    loadModel("../assets/Arisa.vrm");
+    // 6. Load VRM Model (Arisa)
+    loadModel(["Arisa.vrm", "../assets/Arisa.vrm", "assets/Arisa.vrm"]);
 
     // 7. Start Render Loop
     requestAnimationFrame(animate);
@@ -297,62 +297,76 @@
     }
   }
 
-  function loadModel(vrmUrl) {
+  function loadModel(vrmUrls) {
+    const urls = Array.isArray(vrmUrls) ? vrmUrls : [vrmUrls];
     const loader = new THREE.GLTFLoader();
 
-    loader.load(
-      vrmUrl,
-      (gltf) => {
-        try {
-          const vrmCreator =
-            (window.THREE_VRM && window.THREE_VRM.VRM && window.THREE_VRM.VRM.from)
-              ? window.THREE_VRM.VRM.from.bind(window.THREE_VRM.VRM)
-              : (window.THREE && window.THREE.VRM && window.THREE.VRM.fromModel)
-                ? window.THREE.VRM.fromModel.bind(window.THREE.VRM)
-                : null;
+    function tryLoad(index) {
+      if (index >= urls.length) {
+        console.error("[VTuber] All candidate model URLs failed to load.");
+        const txt = document.getElementById("loading-text");
+        if (txt) txt.innerText = "Error loading model. Check assets/Arisa.vrm";
+        return;
+      }
 
-          if (vrmCreator) {
-            vrmCreator(gltf)
-              .then((vrm) => {
-                currentVrm = vrm;
-                window.currentVrm = vrm;
-                scene.add(vrm.scene);
-                setupModelReferences(vrm.scene);
-                hideLoading();
-                console.log("[VTuber] VRM model loaded successfully via THREE_VRM.VRM.from!");
-              })
-              .catch((err) => {
-                console.warn("[VTuber] VRM.from parser error, fallback to gltf.scene:", err);
-                scene.add(gltf.scene);
-                setupModelReferences(gltf.scene);
-                hideLoading();
-              });
-          } else {
-            console.warn("[VTuber] VRM parser not found, using gltf.scene directly");
+      const currentUrl = urls[index];
+      console.log(`[VTuber] Loading VRM model from: ${currentUrl}`);
+
+      loader.load(
+        currentUrl,
+        (gltf) => {
+          try {
+            const vrmCreator =
+              (window.THREE_VRM && window.THREE_VRM.VRM && window.THREE_VRM.VRM.from)
+                ? window.THREE_VRM.VRM.from.bind(window.THREE_VRM.VRM)
+                : (window.THREE && window.THREE.VRM && window.THREE.VRM.fromModel)
+                  ? window.THREE.VRM.fromModel.bind(window.THREE.VRM)
+                  : null;
+
+            if (vrmCreator) {
+              vrmCreator(gltf)
+                .then((vrm) => {
+                  currentVrm = vrm;
+                  window.currentVrm = vrm;
+                  scene.add(vrm.scene);
+                  setupModelReferences(vrm.scene);
+                  hideLoading();
+                  console.log(`[VTuber] VRM model loaded successfully from ${currentUrl} via THREE_VRM.VRM.from!`);
+                })
+                .catch((err) => {
+                  console.warn(`[VTuber] VRM.from parser error on ${currentUrl}, fallback to gltf.scene:`, err);
+                  scene.add(gltf.scene);
+                  setupModelReferences(gltf.scene);
+                  hideLoading();
+                });
+            } else {
+              console.warn(`[VTuber] VRM parser not found, using gltf.scene directly for ${currentUrl}`);
+              scene.add(gltf.scene);
+              setupModelReferences(gltf.scene);
+              hideLoading();
+            }
+          } catch (e) {
+            console.error(`[VTuber] Error parsing model from ${currentUrl}, using gltf.scene fallback:`, e);
             scene.add(gltf.scene);
             setupModelReferences(gltf.scene);
             hideLoading();
           }
-        } catch (e) {
-          console.error("[VTuber] Error parsing model, using gltf.scene fallback:", e);
-          scene.add(gltf.scene);
-          setupModelReferences(gltf.scene);
-          hideLoading();
+        },
+        (progress) => {
+          if (progress.total > 0) {
+            const pct = Math.round((progress.loaded / progress.total) * 100);
+            const txt = document.getElementById("loading-text");
+            if (txt) txt.innerText = `Loading 3D Model (${pct}%)...`;
+          }
+        },
+        (err) => {
+          console.warn(`[VTuber] Failed loading ${currentUrl}, trying fallback...`, err);
+          tryLoad(index + 1);
         }
-      },
-      (progress) => {
-        if (progress.total > 0) {
-          const pct = Math.round((progress.loaded / progress.total) * 100);
-          const txt = document.getElementById("loading-text");
-          if (txt) txt.innerText = `Loading 3D Model (${pct}%)...`;
-        }
-      },
-      (err) => {
-        console.error("[VTuber] GLTF loader network error:", err);
-        const txt = document.getElementById("loading-text");
-        if (txt) txt.innerText = "Error loading model. Check assets/Yong.vrm";
-      }
-    );
+      );
+    }
+
+    tryLoad(0);
   }
 
   function setupModelReferences(root) {
@@ -666,9 +680,10 @@
     // Pitch: inverted so looking up tilts head backward
     // Yaw: follows natural user gaze
     // Roll: inverted to correct left/right tilt inversion
-    const p = -currentMotion.rotation.pitch;
-    const y = -currentMotion.rotation.yaw;
-    const r = currentMotion.rotation.roll;
+    // Clamp to [-1.0, 1.0] rad (~ +-57 deg) to protect against extreme out-of-frame displacement
+    const p = Math.max(-1.0, Math.min(1.0, -currentMotion.rotation.pitch));
+    const y = Math.max(-1.0, Math.min(1.0, -currentMotion.rotation.yaw));
+    const r = Math.max(-1.0, Math.min(1.0, currentMotion.rotation.roll));
 
     // 1. Procedural breathing and gentle idle sway
     const time = clock.getElapsedTime();
@@ -717,7 +732,7 @@
 
     // Lateral translation when leaning + vertical breathing motion on root
     const rootBaseY = -0.10;
-    const lateralSway = (r * 0.04 * swayGain) + idleX;
+    const lateralSway = Math.max(-0.20, Math.min(0.20, (r * 0.04 * swayGain) + idleX));
     if (currentVrm && currentVrm.scene) {
       currentVrm.scene.position.x = lateralSway;
       currentVrm.scene.position.y = rootBaseY + breathY;

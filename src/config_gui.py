@@ -295,8 +295,8 @@ class ConfigLauncherDialog(QDialog):
         form_backend.setSpacing(12)
 
         self.combo_backend = QComboBox()
-        self.combo_backend.addItem("Google MediaPipe (Mặc định - Nhẹ, mượt mọi cấu hình)", "mediapipe")
-        self.combo_backend.addItem("OpenSeeFace ONNX (Chuyên dụng VTuber - Độ chuẩn xác cao)", "openseeface")
+        self.combo_backend.addItem("OpenSeeFace ONNX (Mặc định - Chuyên dụng VTuber - Độ chuẩn xác cao)", "openseeface")
+        self.combo_backend.addItem("Google MediaPipe (Nhẹ, mượt mọi cấu hình)", "mediapipe")
         form_backend.addRow("Công nghệ AI:", self.combo_backend)
         layout.addWidget(group_backend)
 
@@ -577,7 +577,7 @@ class ConfigLauncherDialog(QDialog):
         self.spin_cam_id.setValue(cam_id)
         self._on_camera_spin_changed(cam_id)
 
-        backend = str(cfg.get("tracker_backend", "mediapipe")).lower()
+        backend = str(cfg.get("tracker_backend", "openseeface")).lower()
         backend_idx = self.combo_backend.findData(backend)
         if backend_idx >= 0:
             self.combo_backend.setCurrentIndex(backend_idx)
@@ -626,7 +626,7 @@ class ConfigLauncherDialog(QDialog):
         self.spin_filter_beta.setValue(float(cfg.get("filter_beta", 0.02)))
 
     def _collect_values_from_ui(self) -> dict:
-        backend = self.combo_backend.currentData() or "mediapipe"
+        backend = self.combo_backend.currentData() or "openseeface"
         return {
             "camera_id": self.spin_cam_id.value(),
             "tracker_backend": backend,

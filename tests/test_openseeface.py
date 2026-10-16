@@ -23,6 +23,26 @@ class TestOpenSeeFaceTracker(unittest.TestCase):
         result = tracker.process_frame(black_frame)
         self.assertIsNone(result)
 
+    def test_estimate_depth_matrix_alignment(self):
+        from src.openseeface.tracker import FaceInfo
+        tracker = OpenSeeFaceTracker(width=640, height=480, max_threads=1)
+        face_info = FaceInfo(0, tracker.tracker)
+        face_info.lms = np.random.rand(66, 3).astype(np.float32) * 200 + 200
+        face_info.eye_state = np.array([
+            [1.0, 300.0, 240.0, 1.0],
+            [1.0, 340.0, 240.0, 1.0]
+        ], dtype=np.float32)
+
+        # 1st frame: rotation & translation are initially None
+        success, quat, euler, pnp_error, pts_3d, lms = tracker.tracker.estimate_depth(face_info)
+        self.assertTrue(success)
+        self.assertEqual(pts_3d.shape, (70, 3))
+
+        # 2nd frame: continuous tracking with prior rotation & translation matrices
+        success2, quat2, euler2, pnp_error2, pts_3d2, lms2 = tracker.tracker.estimate_depth(face_info)
+        self.assertTrue(success2)
+        self.assertEqual(pts_3d2.shape, (70, 3))
+
 
 class MockFace:
     def __init__(self):

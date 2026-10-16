@@ -777,10 +777,12 @@ class Tracker():
 
         success = False
         if face_info.rotation is not None:
-            success, face_info.rotation, face_info.translation = cv2.solvePnP(face_info.contour, image_pts, self.camera, self.dist_coeffs, useExtrinsicGuess=True, rvec=np.transpose(face_info.rotation), tvec=np.transpose(face_info.translation), flags=cv2.SOLVEPNP_ITERATIVE)
+            rvec = np.ascontiguousarray(np.array(face_info.rotation, dtype=np.float32).reshape(3, 1))
+            tvec = np.ascontiguousarray(np.array(face_info.translation, dtype=np.float32).reshape(3, 1))
+            success, face_info.rotation, face_info.translation = cv2.solvePnP(face_info.contour, image_pts, self.camera, self.dist_coeffs, useExtrinsicGuess=True, rvec=rvec, tvec=tvec, flags=cv2.SOLVEPNP_ITERATIVE)
         else:
-            rvec = np.array([0, 0, 0], np.float32)
-            tvec = np.array([0, 0, 0], np.float32)
+            rvec = np.zeros((3, 1), np.float32)
+            tvec = np.zeros((3, 1), np.float32)
             success, face_info.rotation, face_info.translation = cv2.solvePnP(face_info.contour, image_pts, self.camera, self.dist_coeffs, useExtrinsicGuess=True, rvec=rvec, tvec=tvec, flags=cv2.SOLVEPNP_ITERATIVE)
 
         rotation = face_info.rotation
@@ -840,12 +842,12 @@ class Tracker():
                 pt = (pts_3d[42] * d1 + pts_3d[45] * d2) / d
             if i < 2:
                 reference = rmat.dot(pt)
-                reference = reference + face_info.translation
+                reference = (reference + face_info.translation).reshape(-1)
                 reference = self.camera.dot(reference)
                 depth = reference[2]
                 pt_3d = np.array([lms[66+i][0] * depth, lms[66+i][1] * depth, depth], np.float32)
                 pt_3d = self.inverse_camera.dot(pt_3d)
-                pt_3d = pt_3d - face_info.translation
+                pt_3d = (pt_3d - face_info.translation).reshape(-1)
                 pt_3d = inverse_rotation.dot(pt_3d)
                 pts_3d[66+i,:] = pt_3d[:]
         pts_3d[np.isnan(pts_3d).any(axis=1)] = np.array([0.,0.,0.], dtype=np.float32)

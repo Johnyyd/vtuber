@@ -286,7 +286,7 @@ def extract_head_pose(face: Any, pitch_offset_deg: float = 18.0) -> Dict[str, fl
         bottom_dist = max(y_chin - y_nose, 1.0)
         ratio = bottom_dist / top_dist
         # Baseline vertical ratio for neutral upright head is ~1.40
-        raw_pitch = float((ratio - 1.40) * 0.8)
+        raw_pitch = float((1.40 - ratio) * 0.8)
         # Compensate for camera pitch relative to default 18.0 deg
         pitch = raw_pitch + float(np.radians(pitch_offset_deg - 18.0))
 

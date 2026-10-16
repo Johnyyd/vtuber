@@ -179,6 +179,16 @@ class TestOpenSeeFaceMapping(unittest.TestCase):
         self.assertAlmostEqual(pose["yaw"], 0.0, places=2)
         self.assertAlmostEqual(pose["pitch"], 0.0, places=2)
 
+        # Looking UP: chin tilts towards nose tip, bottom distance shortens -> pitch > 0
+        face.lms[8] = [340.0, 315.0, 1.0]
+        pose_up = extract_head_pose(face, pitch_offset_deg=18.0)
+        self.assertGreater(pose_up["pitch"], 0.20, "Looking up must produce positive pitch")
+
+        # Looking DOWN: chin tilts away from nose tip, bottom distance expands -> pitch < 0
+        face.lms[8] = [390.0, 315.0, 1.0]
+        pose_down = extract_head_pose(face, pitch_offset_deg=18.0)
+        self.assertLess(pose_down["pitch"], -0.20, "Looking down must produce negative pitch")
+
     def test_openseeface_vowel_i_specificity_and_false_trigger_rejection(self):
         try:
             from openseeface_tracker import map_openseeface_to_vrm

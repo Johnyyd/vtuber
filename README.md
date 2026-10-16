@@ -6,10 +6,14 @@ A real-time VTuber desktop application that tracks facial expressions and head m
 
 ## 🔥 Features
 
-- **Live Webcam Facial Tracking**: Uses MediaPipe FaceLandmarker capturing 478 landmarks and 52 ARKit facial blendshapes at 720p resolution for high tracking stability.
-- **Accurate Viseme Mapping**: High-sensitivity mapping for standard VRM blendshapes (`a`, `i`, `u`, `e`, `o`, `blink`, `joy`, `angry`, `sorrow`, `fun`). Handles thick glasses and low-light environments robustly.
-- **Mirror Mode Rotation**: Head rotation (Pitch, Yaw, Roll) and Eye Gaze are mirrored (left becomes left) so the avatar moves exactly like a reflection in a mirror.
-- **Zero-Network Desktop Architecture**: Runs inside a native frameless desktop window (PyQt6) exchanging tracking data directly in RAM (`runJavaScript`), operating 100% offline.
+- **Dual-Backend AI Facial Tracking**:
+  - **Google MediaPipe FaceLandmarker**: Ultra-lightweight, 478 landmarks & 52 blendshapes, runs smoothly on any low-end hardware.
+  - **OpenSeeFace ONNX**: Specialized VTuber tracking engine using MobileNetV3 (66 3D points, gaze vector, expression regression). Exceptional accuracy for lip sync vowels (`a, i, u, e, o`), natural blink detection, and head pose.
+- **Accurate Viseme & Vowel Synthesis**: High-sensitivity mapping for standard VRM blendshapes (`a`, `i`, `u`, `e`, `o`, `blink`, `joy`, `angry`, `sorrow`, `fun`). Handles thick glasses, resting mouth stability, and speech vowels with zero lag.
+- **Kinematic Torso Sway & Procedural Breathing**: Realistic upper-body movement where the chest and spine naturally bend when tilting or turning your head, combined with subtle idle breathing.
+- **Mirror Mode Rotation**: Head rotation (Pitch, Yaw, Roll) and Eye Gaze are mirrored so the avatar moves naturally like a reflection in a mirror.
+- **Zero-Network Desktop Architecture**: Runs inside a native desktop window (PyQt6) exchanging tracking data directly in RAM (`runJavaScript`), operating 100% offline.
+
 
 ---
 

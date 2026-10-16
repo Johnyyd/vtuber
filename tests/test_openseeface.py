@@ -100,7 +100,34 @@ class TestOpenSeeFaceMapping(unittest.TestCase):
         self.assertTrue(-1.0 <= gaze["x"] <= 1.0)
         self.assertTrue(-1.0 <= gaze["y"] <= 1.0)
 
+    def test_openseeface_end_to_end_packet_compatibility(self):
+        try:
+            from vrm_renderer import format_motion_packet
+            from openseeface_tracker import map_openseeface_to_vrm, map_openseeface_to_vrc, extract_head_pose, extract_iris_gaze
+        except ImportError:
+            from src.vrm_renderer import format_motion_packet
+            from src.openseeface_tracker import map_openseeface_to_vrm, map_openseeface_to_vrc, extract_head_pose, extract_iris_gaze
+
+        face = MockFace()
+        vrm = map_openseeface_to_vrm(face, config={"pitch_offset_deg": 18.0})
+        vrc = map_openseeface_to_vrc(face)
+        rotation = extract_head_pose(face, pitch_offset_deg=18.0)
+        gaze = extract_iris_gaze(face)
+        body = {"sway_gain": 1.0, "breath_gain": 1.0}
+
+        packet = format_motion_packet(vrc=vrc, rotation=rotation, vrm=vrm, gaze=gaze, body=body)
+
+        self.assertIn("vrm", packet)
+        self.assertIn("vrc", packet)
+        self.assertIn("rotation", packet)
+        self.assertIn("gaze", packet)
+        self.assertIn("body", packet)
+        self.assertEqual(packet["rotation"]["pitch"], rotation["pitch"])
+        self.assertEqual(packet["gaze"], gaze)
+        self.assertEqual(packet["body"], body)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

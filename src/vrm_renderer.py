@@ -44,6 +44,11 @@ from landmark_mapping import (
     VRC_TARGETS,
     VRM_BLENDSHAPES,
 )
+try:
+    from openseeface_tracker import OpenSeeFaceTracker
+except ImportError:
+    from src.openseeface_tracker import OpenSeeFaceTracker
+
 
 
 def format_motion_packet(
@@ -146,8 +151,107 @@ class TrackingWorker(QThread):
         self.last_stable_gaze = {"x": 0.0, "y": 0.0}
         self.body_sway_gain = float(self.config.get("body_sway_gain", 1.0))
         self.idle_breath_intensity = float(self.config.get("idle_breath_intensity", 1.0))
+        self.backend = str(self.config.get("tracker_backend", "mediapipe")).strip().lower()
 
     def run(self):
+        if self.backend == "openseeface":
+            self.status_changed.emit("Initializing webcam & OpenSeeFace ONNX...")
+            reader = CameraReader(camera_id=self.camera_id, width=1280, height=720, fps=30)
+
+            if not reader.is_opened():
+                self.status_changed.emit(f"Error: Unable to open camera {self.camera_id}")
+                reader.release()
+                return
+
+            try:
+                tracker = OpenSeeFaceTracker(width=1280, height=720, max_threads=2)
+            except Exception as e:
+                self.status_changed.emit(f"Error loading OpenSeeFace: {e}")
+                reader.release()
+                return
+
+            self.status_changed.emit("Camera tracking active (OpenSeeFace)")
+            wait_frames_start = time.time()
+            has_received_first_frame = False
+
+            while self._running:
+                try:
+                    ret, frame = reader.read_latest()
+                    if not ret or frame is None:
+                        if not has_received_first_frame and (time.time() - wait_frames_start > 3.0):
+                            self.status_changed.emit(
+                                f"Warning: Waiting for frames from camera {self.camera_id}... Check device index."
+                            )
+                            wait_frames_start = time.time()
+                        time.sleep(0.005)
+                        continue
+
+                    has_received_first_frame = True
+                    tracked = tracker.process_frame(frame, self.config)
+
+                    if tracked is not None:
+                        vrm_shapes, vrc, raw_rotation, raw_gaze = tracked
+
+                        # Check if eyes are blinking or closing
+                        is_blinking = (
+                            vrm_shapes.get("blink", 0.0) > 0.40 or
+                            vrm_shapes.get("blink_l", 0.0) > 0.45 or
+                            vrm_shapes.get("blink_r", 0.0) > 0.45
+                        )
+
+                        # Filter rotation & iris gaze to eliminate jitter while keeping instant response
+                        t_now = time.time()
+                        filtered_rotation = {
+                            "pitch": self.filter_pitch.filter(raw_rotation["pitch"], t_now),
+                            "yaw": self.filter_yaw.filter(raw_rotation["yaw"], t_now),
+                            "roll": self.filter_roll.filter(raw_rotation["roll"], t_now),
+                        }
+                        if is_blinking:
+                            # Freeze gaze at pre-blink position so pupils never twitch or jump during blink
+                            filtered_gaze = dict(self.last_stable_gaze)
+                        else:
+                            filtered_gaze = {
+                                "x": self.filter_gaze_x.filter(raw_gaze["x"], t_now),
+                                "y": self.filter_gaze_y.filter(raw_gaze["y"], t_now),
+                            }
+                            self.last_stable_gaze = dict(filtered_gaze)
+
+                        body_params = {
+                            "sway_gain": self.body_sway_gain,
+                            "breath_gain": self.idle_breath_intensity,
+                        }
+                        packet = format_motion_packet(
+                            vrc=vrc,
+                            rotation=filtered_rotation,
+                            vrm=vrm_shapes,
+                            gaze=filtered_gaze,
+                            body=body_params,
+                        )
+                        self.motion_ready.emit(packet)
+                    else:
+                        # No face detected in frame -> send decay signal and reset filters
+                        self.filter_pitch.reset()
+                        self.filter_yaw.reset()
+                        self.filter_roll.reset()
+                        self.filter_gaze_x.reset()
+                        self.filter_gaze_y.reset()
+                        self.last_stable_gaze = {"x": 0.0, "y": 0.0}
+                        body_params = {
+                            "sway_gain": self.body_sway_gain,
+                            "breath_gain": self.idle_breath_intensity,
+                        }
+                        packet = format_motion_packet(None, None, None, None, body=body_params)
+                        self.motion_ready.emit(packet)
+
+                except Exception as e:
+                    print(f"[TrackingWorker Warning] Transient frame error: {e}")
+                    time.sleep(0.01)
+
+            reader.release()
+            self.status_changed.emit("Camera stopped")
+            return
+
+        # MediaPipe Backend
         self.status_changed.emit("Initializing webcam & FaceLandmarker...")
         reader = CameraReader(camera_id=self.camera_id, width=1280, height=720, fps=30)
 

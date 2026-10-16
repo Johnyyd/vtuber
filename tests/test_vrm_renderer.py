@@ -64,6 +64,19 @@ class TestVRMRenderer(unittest.TestCase):
         self.assertIsNone(frame)
         reader.release()
 
+    def test_tracking_worker_backend_selection(self):
+        try:
+            from vrm_renderer import TrackingWorker
+        except ImportError:
+            from src.vrm_renderer import TrackingWorker
+
+        worker_mp = TrackingWorker(camera_id=0, config={"tracker_backend": "mediapipe"})
+        self.assertEqual(worker_mp.backend, "mediapipe")
+
+        worker_osf = TrackingWorker(camera_id=0, config={"tracker_backend": "openseeface"})
+        self.assertEqual(worker_osf.backend, "openseeface")
+
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -151,6 +151,9 @@ class TrackingWorker(QThread):
         self.last_stable_gaze = {"x": 0.0, "y": 0.0}
         self.body_sway_gain = float(self.config.get("body_sway_gain", 1.0))
         self.idle_breath_intensity = float(self.config.get("idle_breath_intensity", 1.0))
+        self.hair_gravity = float(self.config.get("hair_gravity", 1.60))
+        self.hair_stiffness = float(self.config.get("hair_stiffness", 0.38))
+        self.hair_drag = float(self.config.get("hair_drag", 0.58))
         self.backend = str(self.config.get("tracker_backend", "mediapipe")).strip().lower()
 
     def run(self):
@@ -219,6 +222,9 @@ class TrackingWorker(QThread):
                         body_params = {
                             "sway_gain": self.body_sway_gain,
                             "breath_gain": self.idle_breath_intensity,
+                            "hair_gravity": self.hair_gravity,
+                            "hair_stiffness": self.hair_stiffness,
+                            "hair_drag": self.hair_drag,
                         }
                         packet = format_motion_packet(
                             vrc=vrc,
@@ -239,6 +245,9 @@ class TrackingWorker(QThread):
                         body_params = {
                             "sway_gain": self.body_sway_gain,
                             "breath_gain": self.idle_breath_intensity,
+                            "hair_gravity": self.hair_gravity,
+                            "hair_stiffness": self.hair_stiffness,
+                            "hair_drag": self.hair_drag,
                         }
                         packet = format_motion_packet(None, None, None, None, body=body_params)
                         self.motion_ready.emit(packet)
@@ -347,6 +356,9 @@ class TrackingWorker(QThread):
                     body_params = {
                         "sway_gain": self.body_sway_gain,
                         "breath_gain": self.idle_breath_intensity,
+                        "hair_gravity": self.hair_gravity,
+                        "hair_stiffness": self.hair_stiffness,
+                        "hair_drag": self.hair_drag,
                     }
                     packet = format_motion_packet(
                         vrc=vrc,
@@ -367,6 +379,9 @@ class TrackingWorker(QThread):
                     body_params = {
                         "sway_gain": self.body_sway_gain,
                         "breath_gain": self.idle_breath_intensity,
+                        "hair_gravity": self.hair_gravity,
+                        "hair_stiffness": self.hair_stiffness,
+                        "hair_drag": self.hair_drag,
                     }
                     packet = format_motion_packet(None, None, None, None, body=body_params)
                     self.motion_ready.emit(packet)

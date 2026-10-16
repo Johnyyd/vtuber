@@ -46,6 +46,15 @@ class TestViewerHtml(unittest.TestCase):
         self.assertIn("requestWindowResize", content)
         self.assertIn("window.onWindowResized", content)
 
+    def test_app_js_defines_hair_physics(self):
+        with open("viewer/app.js", "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn("applyHairPhysics", content)
+        self.assertIn("isHairBone", content)
+        self.assertIn("hair_gravity", content)
+        self.assertIn("hair_stiffness", content)
+        self.assertIn("hair_drag", content)
+
     def test_style_css_hud_bottom_position(self):
         with open("viewer/style.css", "r", encoding="utf-8") as f:
             content = f.read()

@@ -493,6 +493,30 @@ class ConfigLauncherDialog(QDialog):
         form_body.addRow("Độ thở & lắc lư tự động (Idle Breath):", self.spin_idle_breath)
         layout.addWidget(group_body)
 
+        # Hair Physics & Weight
+        group_hair = QGroupBox("Vật lý & Độ nặng của tóc (Hair Physics)")
+        form_hair = QFormLayout(group_hair)
+        form_hair.setSpacing(10)
+
+        self.spin_hair_gravity = QDoubleSpinBox()
+        self.spin_hair_gravity.setRange(0.0, 5.0)
+        self.spin_hair_gravity.setSingleStep(0.1)
+        self.spin_hair_gravity.setDecimals(2)
+        form_hair.addRow("Trọng lực kéo tóc trĩu xuống (Gravity):", self.spin_hair_gravity)
+
+        self.spin_hair_stiffness = QDoubleSpinBox()
+        self.spin_hair_stiffness.setRange(0.05, 2.0)
+        self.spin_hair_stiffness.setSingleStep(0.05)
+        self.spin_hair_stiffness.setDecimals(2)
+        form_hair.addRow("Độ cứng sợi tóc (Stiffness):", self.spin_hair_stiffness)
+
+        self.spin_hair_drag = QDoubleSpinBox()
+        self.spin_hair_drag.setRange(0.05, 0.95)
+        self.spin_hair_drag.setSingleStep(0.05)
+        self.spin_hair_drag.setDecimals(2)
+        form_hair.addRow("Độ đầm & lực cản quán tính (Drag):", self.spin_hair_drag)
+        layout.addWidget(group_hair)
+
         # OneEuroFilter
         group_filter = QGroupBox("Bộ lọc chống rung chuyển động (OneEuroFilter)")
         form_filter = QFormLayout(group_filter)
@@ -593,6 +617,10 @@ class ConfigLauncherDialog(QDialog):
         self.spin_body_sway.setValue(float(cfg.get("body_sway_gain", 1.0)))
         self.spin_idle_breath.setValue(float(cfg.get("idle_breath_intensity", 1.0)))
 
+        self.spin_hair_gravity.setValue(float(cfg.get("hair_gravity", 1.60)))
+        self.spin_hair_stiffness.setValue(float(cfg.get("hair_stiffness", 0.38)))
+        self.spin_hair_drag.setValue(float(cfg.get("hair_drag", 0.58)))
+
         self.spin_pitch_offset.setValue(float(cfg.get("pitch_offset_deg", 18.0)))
         self.spin_filter_cutoff.setValue(float(cfg.get("filter_min_cutoff", 0.8)))
         self.spin_filter_beta.setValue(float(cfg.get("filter_beta", 0.02)))
@@ -624,6 +652,10 @@ class ConfigLauncherDialog(QDialog):
 
             "body_sway_gain": self.spin_body_sway.value(),
             "idle_breath_intensity": self.spin_idle_breath.value(),
+
+            "hair_gravity": self.spin_hair_gravity.value(),
+            "hair_stiffness": self.spin_hair_stiffness.value(),
+            "hair_drag": self.spin_hair_drag.value(),
 
             "pitch_offset_deg": self.spin_pitch_offset.value(),
             "filter_min_cutoff": self.spin_filter_cutoff.value(),

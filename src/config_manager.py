@@ -46,6 +46,11 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "body_sway_gain": 1.0,
     "idle_breath_intensity": 1.0,
 
+    # [HAIR_PHYSICS]
+    "hair_gravity": 1.60,
+    "hair_stiffness": 0.38,
+    "hair_drag": 0.58,
+
     # [CAMERA_AND_FILTER]
     "pitch_offset_deg": 18.0,
     "filter_min_cutoff": 0.8,
@@ -136,6 +141,16 @@ body_sway_gain = {cfg['body_sway_gain']:.2f}
 idle_breath_intensity = {cfg['idle_breath_intensity']:.2f}
 
 
+[HAIR_PHYSICS]
+# Do nang va vat ly cua toc (Hair Physics & Weight):
+# - hair_gravity: Trong luc keo toc triu xuong tu nhien (mac dinh: 1.60, pham vi: 0.0 - 5.0, 0.0 la bay bong khong trong luong)
+# - hair_stiffness: Do cung dan hoi cua soi toc (mac dinh: 0.38, pham vi: 0.05 - 2.0, cang nho toc cang mem ru)
+# - hair_drag: Luc can khong khi / do dam quan tinh cua toc (mac dinh: 0.58, pham vi: 0.05 - 0.95, cang lon toc cang dam va nang)
+hair_gravity = {cfg['hair_gravity']:.2f}
+hair_stiffness = {cfg['hair_stiffness']:.2f}
+hair_drag = {cfg['hair_drag']:.2f}
+
+
 [CAMERA_AND_FILTER]
 # Goc bu tru do nghieng camera khi dat tren/duoi man hinh (do, mac dinh: 18.0)
 pitch_offset_deg = {cfg['pitch_offset_deg']:.1f}
@@ -174,6 +189,7 @@ def validate_config(config: Dict[str, Any]) -> Dict[str, Any]:
             "u_max_clamp", "o_deadzone", "o_gain", "o_max_clamp",
             "blink_deadzone", "blink_snap_thresh", "brow_raise_deadzone", "brow_raise_gain",
             "frown_deadzone", "frown_gain", "body_sway_gain", "idle_breath_intensity",
+            "hair_gravity", "hair_stiffness", "hair_drag",
             "pitch_offset_deg", "filter_min_cutoff", "filter_beta"
         ]:
             if float_key in validated:
@@ -254,6 +270,11 @@ def load_config(file_path: str = DEFAULT_CONFIG_PATH) -> Dict[str, Any]:
     # Parse BODY_AND_IDLE_MOTION
     config["body_sway_gain"] = get_float("BODY_AND_IDLE_MOTION", "body_sway_gain", config.get("body_sway_gain", 1.0))
     config["idle_breath_intensity"] = get_float("BODY_AND_IDLE_MOTION", "idle_breath_intensity", config.get("idle_breath_intensity", 1.0))
+
+    # Parse HAIR_PHYSICS
+    config["hair_gravity"] = get_float("HAIR_PHYSICS", "hair_gravity", config.get("hair_gravity", 1.60))
+    config["hair_stiffness"] = get_float("HAIR_PHYSICS", "hair_stiffness", config.get("hair_stiffness", 0.38))
+    config["hair_drag"] = get_float("HAIR_PHYSICS", "hair_drag", config.get("hair_drag", 0.58))
 
     # Parse CAMERA_AND_FILTER
     config["pitch_offset_deg"] = get_float("CAMERA_AND_FILTER", "pitch_offset_deg", config["pitch_offset_deg"])

@@ -32,6 +32,9 @@ class TestConfigManager(unittest.TestCase):
         self.assertEqual(cfg["o_max_clamp"], DEFAULT_CONFIG["o_max_clamp"])
         self.assertEqual(cfg["body_sway_gain"], DEFAULT_CONFIG["body_sway_gain"])
         self.assertEqual(cfg["idle_breath_intensity"], DEFAULT_CONFIG["idle_breath_intensity"])
+        self.assertEqual(cfg["hair_gravity"], DEFAULT_CONFIG["hair_gravity"])
+        self.assertEqual(cfg["hair_stiffness"], DEFAULT_CONFIG["hair_stiffness"])
+        self.assertEqual(cfg["hair_drag"], DEFAULT_CONFIG["hair_drag"])
 
     def test_save_and_reload_modified_config(self):
         custom_cfg = dict(DEFAULT_CONFIG)
@@ -42,6 +45,9 @@ class TestConfigManager(unittest.TestCase):
         custom_cfg["o_max_clamp"] = 0.50
         custom_cfg["body_sway_gain"] = 1.50
         custom_cfg["idle_breath_intensity"] = 0.80
+        custom_cfg["hair_gravity"] = 2.20
+        custom_cfg["hair_stiffness"] = 0.30
+        custom_cfg["hair_drag"] = 0.65
         custom_cfg["show_launcher"] = False
 
         success = save_config(custom_cfg, self.config_path)
@@ -55,6 +61,9 @@ class TestConfigManager(unittest.TestCase):
         self.assertAlmostEqual(loaded["o_max_clamp"], 0.50, places=2)
         self.assertAlmostEqual(loaded["body_sway_gain"], 1.50, places=2)
         self.assertAlmostEqual(loaded["idle_breath_intensity"], 0.80, places=2)
+        self.assertAlmostEqual(loaded["hair_gravity"], 2.20, places=2)
+        self.assertAlmostEqual(loaded["hair_stiffness"], 0.30, places=2)
+        self.assertAlmostEqual(loaded["hair_drag"], 0.65, places=2)
         self.assertFalse(loaded["show_launcher"])
 
     def test_corrupted_config_falls_back_to_defaults(self):

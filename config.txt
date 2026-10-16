@@ -75,6 +75,16 @@ body_sway_gain = 1.00
 idle_breath_intensity = 1.00
 
 
+[HAIR_PHYSICS]
+# Do nang va vat ly cua toc (Hair Physics & Weight):
+# - hair_gravity: Trong luc keo toc triu xuong tu nhien (mac dinh: 1.60, pham vi: 0.0 - 5.0, 0.0 la bay bong khong trong luong)
+# - hair_stiffness: Do cung dan hoi cua soi toc (mac dinh: 0.38, pham vi: 0.05 - 2.0, cang nho toc cang mem ru)
+# - hair_drag: Luc can khong khi / do dam quan tinh cua toc (mac dinh: 0.58, pham vi: 0.05 - 0.95, cang lon toc cang dam va nang)
+hair_gravity = 1.60
+hair_stiffness = 0.38
+hair_drag = 0.58
+
+
 [CAMERA_AND_FILTER]
 # Goc bu tru do nghieng camera khi dat tren/duoi man hinh (do, mac dinh: 18.0)
 pitch_offset_deg = 18.0

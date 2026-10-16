@@ -70,6 +70,9 @@
     body: {
       sway_gain: 1.0,
       breath_gain: 1.0,
+      hair_gravity: 1.60,
+      hair_stiffness: 0.38,
+      hair_drag: 0.58,
     },
   };
 
@@ -460,7 +463,66 @@
       currentVrm.lookAt.autoUpdate = false;
     }
 
+    applyHairPhysics(
+      targetMotion.body.hair_gravity,
+      targetMotion.body.hair_stiffness,
+      targetMotion.body.hair_drag
+    );
+
     console.log("[VTuber] Model setup complete. Head:", headBone ? headBone.name : "None", "Neck:", neckBone ? neckBone.name : "None", "Eyes:", eyeLeftBone ? eyeLeftBone.name : "None", eyeRightBone ? eyeRightBone.name : "None");
+  }
+
+  let lastAppliedHairParams = { gravity: null, stiffness: null, drag: null };
+
+  function isHairBone(bone) {
+    if (!bone) return false;
+    const name = bone.name || "";
+    if (/hair|bang|ahoge|tail|pigtail|braid/i.test(name)) {
+      return true;
+    }
+    let curr = bone.parent;
+    while (curr) {
+      if (curr === headBone) return true;
+      if (curr.name === "J_Bip_C_Head" || /head/i.test(curr.name)) return true;
+      curr = curr.parent;
+    }
+    return false;
+  }
+
+  function applyHairPhysics(gravityPower, stiffnessForce, dragForce) {
+    if (!currentVrm || !currentVrm.springBoneManager) return;
+    const mgr = currentVrm.springBoneManager;
+    if (!mgr.springBoneGroupList) return;
+
+    const grav = typeof gravityPower === "number" ? gravityPower : 1.60;
+    const stiff = typeof stiffnessForce === "number" ? stiffnessForce : 0.38;
+    const drag = typeof dragForce === "number" ? dragForce : 0.58;
+
+    if (
+      lastAppliedHairParams.gravity === grav &&
+      lastAppliedHairParams.stiffness === stiff &&
+      lastAppliedHairParams.drag === drag
+    ) {
+      return;
+    }
+
+    lastAppliedHairParams.gravity = grav;
+    lastAppliedHairParams.stiffness = stiff;
+    lastAppliedHairParams.drag = drag;
+
+    let hairBonesCount = 0;
+    mgr.springBoneGroupList.forEach((group) => {
+      group.forEach((spring) => {
+        if (isHairBone(spring.bone)) {
+          spring.gravityPower = grav;
+          spring.gravityDir.set(0, -1, 0); // Always pull downwards along Y axis
+          spring.stiffnessForce = stiff;
+          spring.dragForce = drag;
+          hairBonesCount++;
+        }
+      });
+    });
+    console.log(`[VTuber] Applied hair physics: ${hairBonesCount} bones updated (gravity: ${grav}, stiffness: ${stiff}, drag: ${drag})`);
   }
 
   function onWindowResize() {
@@ -509,6 +571,20 @@
       if (typeof data.body.breath_gain === "number") {
         targetMotion.body.breath_gain = data.body.breath_gain;
       }
+      if (typeof data.body.hair_gravity === "number") {
+        targetMotion.body.hair_gravity = data.body.hair_gravity;
+      }
+      if (typeof data.body.hair_stiffness === "number") {
+        targetMotion.body.hair_stiffness = data.body.hair_stiffness;
+      }
+      if (typeof data.body.hair_drag === "number") {
+        targetMotion.body.hair_drag = data.body.hair_drag;
+      }
+      applyHairPhysics(
+        targetMotion.body.hair_gravity,
+        targetMotion.body.hair_stiffness,
+        targetMotion.body.hair_drag
+      );
     }
 
     lastMotionTimestamp = performance.now();
@@ -950,7 +1026,7 @@
 
     // Update VRM internal components (spring bones, physics, and blendshapes)
     if (currentVrm) {
-      const delta = clock.getDelta();
+      const delta = Math.min(clock.getDelta(), 0.04);
       currentVrm.update(delta);
     }
 

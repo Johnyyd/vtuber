@@ -65,6 +65,20 @@ class TestConfigManager(unittest.TestCase):
         self.assertEqual(loaded["camera_id"], DEFAULT_CONFIG["camera_id"])
         self.assertEqual(loaded["smile_deadzone"], DEFAULT_CONFIG["smile_deadzone"])
 
+    def test_tracker_backend_config(self):
+        from config_manager import DEFAULT_CONFIG, load_config, validate_config
+        self.assertIn("tracker_backend", DEFAULT_CONFIG)
+        self.assertEqual(DEFAULT_CONFIG["tracker_backend"], "mediapipe")
+
+        # Validation succeeds for valid backends
+        valid_cfg = validate_config({"tracker_backend": "openseeface"})
+        self.assertEqual(valid_cfg["tracker_backend"], "openseeface")
+
+        # Validation falls back for invalid backend
+        invalid_cfg = validate_config({"tracker_backend": "unknown_ai"})
+        self.assertEqual(invalid_cfg["tracker_backend"], "mediapipe")
+
+
 
 class TestMainArgParsing(unittest.TestCase):
     def test_main_cli_arguments(self):

@@ -21,6 +21,7 @@ DEFAULT_CONFIG_PATH = os.path.join(_APP_ROOT, "config.txt")
 DEFAULT_CONFIG: Dict[str, Any] = {
     # [GENERAL]
     "camera_id": 0,
+    "tracker_backend": "mediapipe",  # "mediapipe" hoac "openseeface"
     "window_width": 800,
     "window_height": 600,
     "show_launcher": True,
@@ -67,6 +68,11 @@ def generate_default_config_text(config: Dict[str, Any] = None) -> str:
 [GENERAL]
 # Chi so camera webcam (0: webcam mac dinh, 1, 2: webcam roi hoac DroidCam...)
 camera_id = {cfg['camera_id']}
+
+# Mo hinh AI nhan dien khuon mat (mediapipe hoac openseeface)
+# - mediapipe: Google MediaPipe (Mac dinh - Sieu nhe, muot tren moi may)
+# - openseeface: OpenSeeFace ONNX (Chuyen dung VTuber - Tracking mat va mieng chinh xac cao)
+tracker_backend = {cfg['tracker_backend']}
 
 # Kich thuoc cua so mac dinh (pixels)
 window_width = {cfg['window_width']}
@@ -142,6 +148,42 @@ filter_beta = {cfg['filter_beta']:.4f}
 """
 
 
+def validate_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate configuration dictionary, sanitizing and filling default fallbacks."""
+    validated = dict(DEFAULT_CONFIG)
+    if not isinstance(config, dict):
+        return validated
+
+    validated.update(config)
+
+    # Validate tracker_backend
+    backend = str(validated.get("tracker_backend", "mediapipe")).strip().lower()
+    if backend not in {"mediapipe", "openseeface"}:
+        backend = "mediapipe"
+    validated["tracker_backend"] = backend
+
+    # Clamp numeric values
+    try:
+        validated["camera_id"] = max(0, int(validated["camera_id"]))
+        validated["window_width"] = max(400, int(validated["window_width"]))
+        validated["window_height"] = max(300, int(validated["window_height"]))
+        validated["show_launcher"] = bool(validated["show_launcher"])
+
+        for float_key in [
+            "smile_deadzone", "smile_gain", "mouth_open_deadzone", "mouth_open_gain",
+            "u_max_clamp", "o_deadzone", "o_gain", "o_max_clamp",
+            "blink_deadzone", "blink_snap_thresh", "brow_raise_deadzone", "brow_raise_gain",
+            "frown_deadzone", "frown_gain", "body_sway_gain", "idle_breath_intensity",
+            "pitch_offset_deg", "filter_min_cutoff", "filter_beta"
+        ]:
+            if float_key in validated:
+                validated[float_key] = float(validated[float_key])
+    except Exception:
+        pass
+
+    return validated
+
+
 def load_config(file_path: str = DEFAULT_CONFIG_PATH) -> Dict[str, Any]:
     """
     Load configuration from config.txt.
@@ -179,8 +221,16 @@ def load_config(file_path: str = DEFAULT_CONFIG_PATH) -> Dict[str, Any]:
         except Exception:
             return default
 
+    def get_str(section, key, default):
+        try:
+            val = parser.get(section, key).strip()
+            return val if val else default
+        except Exception:
+            return default
+
     # Parse GENERAL
     config["camera_id"] = get_int("GENERAL", "camera_id", config["camera_id"])
+    config["tracker_backend"] = get_str("GENERAL", "tracker_backend", config["tracker_backend"])
     config["window_width"] = get_int("GENERAL", "window_width", config["window_width"])
     config["window_height"] = get_int("GENERAL", "window_height", config["window_height"])
     config["show_launcher"] = get_bool("GENERAL", "show_launcher", config["show_launcher"])
@@ -210,7 +260,7 @@ def load_config(file_path: str = DEFAULT_CONFIG_PATH) -> Dict[str, Any]:
     config["filter_min_cutoff"] = get_float("CAMERA_AND_FILTER", "filter_min_cutoff", config["filter_min_cutoff"])
     config["filter_beta"] = get_float("CAMERA_AND_FILTER", "filter_beta", config["filter_beta"])
 
-    return config
+    return validate_config(config)
 
 
 def save_config(config: Dict[str, Any], file_path: str = DEFAULT_CONFIG_PATH) -> bool:

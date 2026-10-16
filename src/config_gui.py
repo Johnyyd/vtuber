@@ -289,6 +289,17 @@ class ConfigLauncherDialog(QDialog):
         form_cam.addRow("Thiết bị Camera:", cam_layout)
         layout.addWidget(group_cam)
 
+        # AI Backend settings
+        group_backend = QGroupBox("Mô hình AI Nhận diện (Tracker Backend)")
+        form_backend = QFormLayout(group_backend)
+        form_backend.setSpacing(12)
+
+        self.combo_backend = QComboBox()
+        self.combo_backend.addItem("Google MediaPipe (Mặc định - Nhẹ, mượt mọi cấu hình)", "mediapipe")
+        self.combo_backend.addItem("OpenSeeFace ONNX (Chuyên dụng VTuber - Độ chuẩn xác cao)", "openseeface")
+        form_backend.addRow("Công nghệ AI:", self.combo_backend)
+        layout.addWidget(group_backend)
+
         # Window settings
         group_win = QGroupBox("Kích thước cửa sổ hiển thị")
         form_win = QFormLayout(group_win)
@@ -541,6 +552,14 @@ class ConfigLauncherDialog(QDialog):
         cam_id = int(cfg.get("camera_id", 0))
         self.spin_cam_id.setValue(cam_id)
         self._on_camera_spin_changed(cam_id)
+
+        backend = str(cfg.get("tracker_backend", "mediapipe")).lower()
+        backend_idx = self.combo_backend.findData(backend)
+        if backend_idx >= 0:
+            self.combo_backend.setCurrentIndex(backend_idx)
+        else:
+            self.combo_backend.setCurrentIndex(0)
+
         w = int(cfg.get("window_width", 1024))
         h = int(cfg.get("window_height", 768))
         self.spin_width.setValue(w)
@@ -579,8 +598,10 @@ class ConfigLauncherDialog(QDialog):
         self.spin_filter_beta.setValue(float(cfg.get("filter_beta", 0.02)))
 
     def _collect_values_from_ui(self) -> dict:
+        backend = self.combo_backend.currentData() or "mediapipe"
         return {
             "camera_id": self.spin_cam_id.value(),
+            "tracker_backend": backend,
             "window_width": self.spin_width.value(),
             "window_height": self.spin_height.value(),
             "show_launcher": self.chk_show_launcher.isChecked(),

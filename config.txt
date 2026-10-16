@@ -8,6 +8,11 @@
 # Chi so camera webcam (0: webcam mac dinh, 1, 2: webcam roi hoac DroidCam...)
 camera_id = 1
 
+# Mo hinh AI nhan dien khuon mat (mediapipe hoac openseeface)
+# - mediapipe: Google MediaPipe (Mac dinh - Sieu nhe, muot tren moi may)
+# - openseeface: OpenSeeFace ONNX (Chuyen dung VTuber - Tracking mat va mieng chinh xac cao)
+tracker_backend = mediapipe
+
 # Kich thuoc cua so mac dinh (pixels)
 window_width = 800
 window_height = 600

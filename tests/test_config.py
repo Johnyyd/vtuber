@@ -77,7 +77,7 @@ class TestConfigManager(unittest.TestCase):
     def test_tracker_backend_config(self):
         from config_manager import DEFAULT_CONFIG, load_config, validate_config
         self.assertIn("tracker_backend", DEFAULT_CONFIG)
-        self.assertEqual(DEFAULT_CONFIG["tracker_backend"], "mediapipe")
+        self.assertEqual(DEFAULT_CONFIG["tracker_backend"], "openseeface")
 
         # Validation succeeds for valid backends
         valid_cfg = validate_config({"tracker_backend": "openseeface"})
@@ -85,7 +85,7 @@ class TestConfigManager(unittest.TestCase):
 
         # Validation falls back for invalid backend
         invalid_cfg = validate_config({"tracker_backend": "unknown_ai"})
-        self.assertEqual(invalid_cfg["tracker_backend"], "mediapipe")
+        self.assertEqual(invalid_cfg["tracker_backend"], "openseeface")
 
 
 

@@ -573,19 +573,33 @@ def map_mediapipe_to_vrm(
             i_val = 0.0
             e_val = 0.0
 
-    vrm["u"] = _clamp(u_val)
-    vrm["o"] = _clamp(o_val)
-    vrm["i"] = _clamp(i_val)
-    vrm["e"] = _clamp(e_val)
+    # VOWEL PRIORITY CASCADE: A > E > I > U > O
+    # 1. E and I separation (E has higher priority than I: E > I):
+    # During open mouth speech (open_metric > 0.12), horizontal stretch is E, NEVER I.
+    # Close front vowel I requires narrow jaw (open_metric <= 0.10).
+    cand_e = _clamp(e_val)
+    # I is suppressed when jaw is open (A or E active)
+    cand_i = _clamp(max(0.0, i_val - (raw_a * 1.2 if raw_speech > 0.12 else 0.0) - cand_e * 1.5))
 
-    # Prevent U and O fighting each other
-    if vrm["o"] > vrm["u"]:
-        vrm["u"] = max(0.0, vrm["u"] - vrm["o"] * 0.5)
+    # 2. U and O separation (U has higher priority than O: U > O):
+    # Puckered mouth with small/moderate jaw is U; O is funneled/rounded open mouth.
+    cand_u = min(u_max, _clamp(u_val))
+    cand_o = min(o_max, _clamp(o_val))
 
-    # VOWEL A (Vertical jaw drop):
+    # U has higher priority than O (suppress O if U is active with small jaw)
+    if cand_u > 0.25 and raw_speech < 0.25:
+        cand_o = max(0.0, cand_o - cand_u * 0.5)
+
+    # 3. A (Top priority - Vertical Jaw Opening):
     # Attenuated gently when U, O, I, E are strongly formed
     raw_a_clean = _dz(raw_a, 0.02) * mouth_gain
-    vrm["a"] = _clamp(max(0.0, raw_a_clean - vrm["u"] * 0.7 - vrm["o"] * 0.5 - vrm["i"] * 0.5 - vrm["e"] * 0.3))
+    cand_a = _clamp(max(0.0, raw_a_clean - cand_u * 0.7 - cand_o * 0.5 - cand_i * 0.5 - cand_e * 0.35))
+
+    vrm["a"] = cand_a
+    vrm["e"] = cand_e
+    vrm["i"] = cand_i
+    vrm["u"] = cand_u
+    vrm["o"] = cand_o
 
     vrm["neutral"] = _clamp(1.0 - (vrm["a"] + vrm["i"] + vrm["u"] + vrm["e"] + vrm["o"]))
 

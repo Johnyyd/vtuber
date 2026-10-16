@@ -132,17 +132,34 @@ def map_openseeface_to_vrm(face: Any, config: Optional[dict] = None) -> Dict[str
             i_ratio = 1.0 - t
             e_ratio = t
 
-        # Natural vowel mapping:
-        # 'a': tall opening, normal width (attenuated only during deliberate wide stretch)
-        v_a = _clamp(open_val * (1.0 - wide_active * 0.40))
-        # 'i': deliberate horizontal stretch with low opening
-        v_i = _clamp(wide_active * i_ratio)
-        # 'u': round forward pucker (low width, moderate opening)
-        v_u = _clamp((open_val * 0.65) * (1.0 - max(0.0, mouth_wide_raw) * 0.85), 0.0, u_max_clamp)
-        # 'e': wide grin-like opening (both open and deliberately wide)
-        v_e = _clamp(open_val * 1.6 * wide_active * e_ratio)
-        # 'o': round mouth opening with narrow corners
-        v_o = _clamp(open_val * (1.0 - max(0.0, mouth_wide_raw) * 0.75) * (o_gain / 1.8), 0.0, o_max_clamp)
+        # VOWEL PRIORITY CASCADE: A > E > I > U > O
+        # 1. A (Top priority - Vertical mouth opening)
+        cand_a = open_val
+
+        # 2. E (2nd priority - Open lateral stretch)
+        cand_e = _clamp(open_val * 1.6 * wide_active * e_ratio)
+
+        # 3. I (3rd priority - Close lateral stretch, only when jaw is relatively closed)
+        cand_i = _clamp(wide_active * i_ratio)
+
+        # 4. U (4th priority - Puckered lips)
+        cand_u = _clamp((open_val * 0.65) * (1.0 - max(0.0, mouth_wide_raw) * 0.85), 0.0, u_max_clamp)
+
+        # 5. O (5th priority - Rounded mouth)
+        cand_o = _clamp(open_val * (1.0 - max(0.0, mouth_wide_raw) * 0.75) * (o_gain / 1.8), 0.0, o_max_clamp)
+
+        # Suppress I if jaw is wide open speaking A or E (enforces E > I and A > I)
+        v_e = cand_e
+        v_i = _clamp(max(0.0, cand_i - (open_val * 1.2 if open_val > 0.15 else 0.0) - v_e * 1.5))
+
+        # A is attenuated when distinct vowels (E, I) are formed
+        v_a = _clamp(max(0.0, cand_a - v_e * 0.35 - v_i * 0.5))
+
+        # U has priority over O (enforces U > O)
+        v_u = cand_u
+        v_o = cand_o
+        if v_u > 0.20 and open_val < 0.25:
+            v_o = _clamp(max(0.0, v_o - v_u * 0.5))
 
     # Emotions
     smile_l = float(features.get("mouth_corner_updown_l", 0.0))

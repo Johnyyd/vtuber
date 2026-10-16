@@ -157,6 +157,15 @@ class TrackingWorker(QThread):
         self.backend = str(self.config.get("tracker_backend", "mediapipe")).strip().lower()
 
     def run(self):
+        backend_name = "OpenSeeFace ONNX" if self.backend == "openseeface" else "Google MediaPipe"
+        print("\n" + "=" * 65)
+        print(f" [VTuber] MO HINH TRACKING DANG CHAY: {backend_name.upper()}")
+        if self.backend == "openseeface":
+            print(" [VTuber] -> He thong ONNX chuyen dung cho VTuber (68 3D landmarks)")
+        else:
+            print(" [VTuber] -> He thong Google MediaPipe (468 landmarks)")
+        print("=" * 65 + "\n")
+
         if self.backend == "openseeface":
             self.status_changed.emit("Initializing webcam & OpenSeeFace ONNX...")
             reader = CameraReader(camera_id=self.camera_id, width=1280, height=720, fps=30)
@@ -220,6 +229,7 @@ class TrackingWorker(QThread):
                             self.last_stable_gaze = dict(filtered_gaze)
 
                         body_params = {
+                            "backend": "OpenSeeFace",
                             "sway_gain": self.body_sway_gain,
                             "breath_gain": self.idle_breath_intensity,
                             "hair_gravity": self.hair_gravity,
@@ -243,6 +253,7 @@ class TrackingWorker(QThread):
                         self.filter_gaze_y.reset()
                         self.last_stable_gaze = {"x": 0.0, "y": 0.0}
                         body_params = {
+                            "backend": "OpenSeeFace",
                             "sway_gain": self.body_sway_gain,
                             "breath_gain": self.idle_breath_intensity,
                             "hair_gravity": self.hair_gravity,
@@ -354,6 +365,7 @@ class TrackingWorker(QThread):
                         self.last_stable_gaze = dict(filtered_gaze)
 
                     body_params = {
+                        "backend": "MediaPipe",
                         "sway_gain": self.body_sway_gain,
                         "breath_gain": self.idle_breath_intensity,
                         "hair_gravity": self.hair_gravity,
@@ -377,6 +389,7 @@ class TrackingWorker(QThread):
                     self.filter_gaze_y.reset()
                     self.last_stable_gaze = {"x": 0.0, "y": 0.0}
                     body_params = {
+                        "backend": "MediaPipe",
                         "sway_gain": self.body_sway_gain,
                         "breath_gain": self.idle_breath_intensity,
                         "hair_gravity": self.hair_gravity,

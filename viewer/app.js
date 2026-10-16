@@ -580,6 +580,12 @@
       if (typeof data.body.hair_drag === "number") {
         targetMotion.body.hair_drag = data.body.hair_drag;
       }
+      if (typeof data.body.backend === "string") {
+        const hudBackend = document.getElementById("hud-backend");
+        if (hudBackend && hudBackend.innerText !== data.body.backend) {
+          hudBackend.innerText = data.body.backend;
+        }
+      }
       applyHairPhysics(
         targetMotion.body.hair_gravity,
         targetMotion.body.hair_stiffness,
@@ -1000,9 +1006,15 @@
           maxEyeWeight = currentMotion.vrm[key];
           topEye = key.toUpperCase();
         }
-        if (mouthKeys.includes(key) && currentMotion.vrm[key] > maxMouthWeight) {
-          maxMouthWeight = currentMotion.vrm[key];
-          topMouth = key.toUpperCase();
+        if (mouthKeys.includes(key)) {
+          // Priority order for mouth viseme: A > E > I > U > O
+          const vowelPriorityBonus = { "a": 0.05, "e": 0.04, "i": 0.03, "u": 0.02, "o": 0.01 };
+          const bonus = vowelPriorityBonus[key] || 0.0;
+          const weightedVal = currentMotion.vrm[key] + bonus;
+          if (weightedVal > maxMouthWeight) {
+            maxMouthWeight = currentMotion.vrm[key];
+            topMouth = key.toUpperCase();
+          }
         }
       }
     }

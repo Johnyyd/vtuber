@@ -21,7 +21,7 @@ DEFAULT_CONFIG_PATH = os.path.join(_APP_ROOT, "config.txt")
 DEFAULT_CONFIG: Dict[str, Any] = {
     # [GENERAL]
     "camera_id": 0,
-    "tracker_backend": "mediapipe",  # "mediapipe" hoac "openseeface"
+    "tracker_backend": "openseeface",  # "openseeface" hoac "mediapipe"
     "window_width": 800,
     "window_height": 600,
     "show_launcher": True,
@@ -172,9 +172,9 @@ def validate_config(config: Dict[str, Any]) -> Dict[str, Any]:
     validated.update(config)
 
     # Validate tracker_backend
-    backend = str(validated.get("tracker_backend", "mediapipe")).strip().lower()
+    backend = str(validated.get("tracker_backend", "openseeface")).strip().lower()
     if backend not in {"mediapipe", "openseeface"}:
-        backend = "mediapipe"
+        backend = "openseeface"
     validated["tracker_backend"] = backend
 
     # Clamp numeric values

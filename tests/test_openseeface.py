@@ -63,13 +63,22 @@ class MockFace:
         }
         # 68 landmarks with dummy coordinates
         self.lms = np.zeros((68, 3), dtype=np.float32)
-        # Eye landmarks for right eye (36-41) and left eye (42-47), pupils (66, 67)
-        self.lms[36] = [100, 100, 1.0]  # right outer
-        self.lms[39] = [120, 100, 1.0]  # right inner
-        self.lms[66] = [110, 100, 1.0]  # right pupil center
-        self.lms[42] = [150, 100, 1.0]  # left inner
-        self.lms[45] = [170, 100, 1.0]  # left outer
-        self.lms[67] = [160, 100, 1.0]  # left pupil center
+        # Eye landmarks for right eye (36-41), pupil (66) and left eye (42-47), pupil (67)
+        self.lms[36] = [100.0, 100.0, 1.0]  # right outer
+        self.lms[37] = [94.0, 115.0, 1.0]   # right top lid
+        self.lms[38] = [94.0, 115.0, 1.0]
+        self.lms[39] = [100.0, 130.0, 1.0]  # right inner
+        self.lms[40] = [106.0, 115.0, 1.0]  # right bot lid
+        self.lms[41] = [106.0, 115.0, 1.0]
+        self.lms[66] = [100.0, 115.0, 1.0]  # right pupil center
+
+        self.lms[42] = [100.0, 160.0, 1.0]  # left inner
+        self.lms[43] = [94.0, 175.0, 1.0]   # left top lid
+        self.lms[44] = [94.0, 175.0, 1.0]
+        self.lms[45] = [100.0, 190.0, 1.0]  # left outer
+        self.lms[46] = [106.0, 175.0, 1.0]  # left bot lid
+        self.lms[47] = [106.0, 175.0, 1.0]
+        self.lms[67] = [100.0, 175.0, 1.0]  # left pupil center
 
 
 class TestOpenSeeFaceMapping(unittest.TestCase):
@@ -222,6 +231,71 @@ class TestOpenSeeFaceMapping(unittest.TestCase):
         vrm_i = map_openseeface_to_vrm(face_i)
         self.assertGreater(vrm_i["i"], 0.40, "Pronounced 'I' must trigger responsively")
         self.assertGreater(vrm_i["i"], vrm_i["a"], "When pronouncing 'I', 'I' must dominate over 'A'")
+
+    def test_openseeface_iris_gaze_directions_and_blink_stability(self):
+        try:
+            from openseeface_tracker import extract_iris_gaze
+        except ImportError:
+            from src.openseeface_tracker import extract_iris_gaze
+
+        face = MockFace()
+        # 1. Neutral centered gaze -> (0.0, 0.0)
+        gaze_center = extract_iris_gaze(face)
+        self.assertAlmostEqual(gaze_center["x"], 0.0, places=2)
+        self.assertAlmostEqual(gaze_center["y"], 0.0, places=2)
+
+        # 2. Looking Left: pupils shift to user's left (+X in image coordinates)
+        face.lms[66, 1] = 120.0  # +5px towards left
+        face.lms[67, 1] = 180.0
+        gaze_left = extract_iris_gaze(face)
+        self.assertGreater(gaze_left["x"], 0.40, "Looking left must produce positive gaze X")
+
+        # 3. Looking Right: pupils shift to user's right (-X in image coordinates)
+        face.lms[66, 1] = 110.0  # -5px towards right
+        face.lms[67, 1] = 170.0
+        gaze_right = extract_iris_gaze(face)
+        self.assertLess(gaze_right["x"], -0.40, "Looking right must produce negative gaze X")
+
+        # Reset X
+        face.lms[66, 1] = 115.0
+        face.lms[67, 1] = 175.0
+
+        # 4. Looking Up: pupils shift upwards (-Y in image coordinates)
+        face.lms[66, 0] = 97.0   # -3px upwards
+        face.lms[67, 0] = 97.0
+        gaze_up = extract_iris_gaze(face)
+        self.assertLess(gaze_up["y"], -0.40, "Looking up must produce negative gaze Y")
+
+        # 5. Looking Down: pupils shift downwards (+Y in image coordinates)
+        face.lms[66, 0] = 103.0  # +3px downwards
+        face.lms[67, 0] = 103.0
+        gaze_down = extract_iris_gaze(face)
+        self.assertGreater(gaze_down["y"], 0.40, "Looking down must produce positive gaze Y")
+
+        # 6. Eye Blink: gaze must be neutral (0.0, 0.0) during blink to prevent eye twitch
+        face.eye_blink = [0.1, 0.1]  # eyes closed
+        gaze_blink = extract_iris_gaze(face)
+        self.assertEqual(gaze_blink["x"], 0.0)
+        self.assertEqual(gaze_blink["y"], 0.0)
+
+    def test_openseeface_feature_update_state_independence(self):
+        try:
+            from openseeface.tracker import Feature
+        except ImportError:
+            from src.openseeface.tracker import Feature
+
+        feat = Feature()
+        # 5 resting frames
+        for _ in range(5):
+            feat.update(0.20)
+        # Mouth opens wide to 0.45 without prior dipping below median
+        out_open = feat.update(0.45)
+        self.assertGreater(out_open, 0.50, "Feature max must initialize even when min has not been triggered")
+        self.assertIsNotNone(feat.max, "Feature max bound must be recorded")
+
+        # Mouth returns to resting 0.20
+        out_rest = feat.update(0.20)
+        self.assertLess(out_rest, 0.20, "Feature must decay back down when returning to rest")
 
 
 if __name__ == "__main__":

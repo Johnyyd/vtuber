@@ -98,6 +98,18 @@ def map_openseeface_to_vrm(face: Any, config: Optional[dict] = None) -> Dict[str
     mouth_open_raw = float(features.get("mouth_open", 0.0))
     mouth_wide_raw = float(features.get("mouth_wide", 0.0))
 
+    # Physical Ground Truth: if landmarks are present, verify inner lip separation
+    lms = getattr(face, "lms", None)
+    if lms is not None and len(lms) >= 66 and float(lms[30, 0]) > 10.0 and float(lms[51, 0]) > 10.0:
+        nose_h = max(1.0, float(lms[30, 0] - lms[27, 0]))
+        upper_inner_y = float(np.mean(lms[[59, 60, 61], 0]))
+        lower_inner_y = float(np.mean(lms[[63, 64, 65], 0]))
+        lip_gap = lower_inner_y - upper_inner_y
+        inner_mar = lip_gap / nose_h
+        # If inner lips are touching (inner_mar <= 0.06), mouth is physically closed
+        if inner_mar <= 0.06:
+            mouth_open_raw = 0.0
+
     if mouth_open_raw < mouth_open_deadzone:
         # Resting mouth stability: neutral expression, no random vowels
         v_a = 0.0
@@ -172,7 +184,7 @@ def map_openseeface_to_vrm(face: Any, config: Optional[dict] = None) -> Dict[str
     sorrow = _clamp((frown_val - frown_deadzone) * frown_gain + max(0.0, steepness) * 0.6)
 
     brow_up = (float(features.get("eyebrow_updown_l", 0.0)) + float(features.get("eyebrow_updown_r", 0.0))) / 2.0
-    surprised = _clamp(max(0.0, brow_up - brow_raise_deadzone) * brow_raise_gain * 0.6 + (v_a * 0.5))
+    surprised = _clamp(max(0.0, brow_up - brow_raise_deadzone) * brow_raise_gain)
 
     angry = _clamp(max(0.0, -steepness) * 1.5 + frown_val * 0.5)
     fun = _clamp(joy * 0.85)
@@ -320,43 +332,76 @@ def extract_head_pose(face: Any, pitch_offset_deg: float = 18.0) -> Dict[str, fl
 def extract_iris_gaze(face: Any) -> Dict[str, float]:
     """
     Extract normalized iris gaze vector (-1.0 to 1.0) from OpenSeeFace pupil landmarks.
+    x: -1.0 (looking right) to +1.0 (looking left)
+    y: -1.0 (looking up) to +1.0 (looking down)
     """
     lms = getattr(face, "lms", None)
     if lms is None or len(lms) < 68:
         return {"x": 0.0, "y": 0.0}
 
     try:
-        # Landmarks: Right Eye (36-41), Pupil (66); Left Eye (42-47), Pupil (67)
-        # Check confidences
-        r_pupil_conf = lms[66][2]
-        l_pupil_conf = lms[67][2]
+        # Check if blinking/closing eyes
+        eye_blink = getattr(face, "eye_blink", None)
+        if eye_blink is not None and len(eye_blink) >= 2:
+            if float(eye_blink[0]) < 0.35 or float(eye_blink[1]) < 0.35:
+                return {"x": 0.0, "y": 0.0}
+
+        r_pupil_conf = float(lms[66][2])
+        l_pupil_conf = float(lms[67][2])
 
         gaze_x_list = []
         gaze_y_list = []
 
-        if r_pupil_conf > 0.15:
-            r_outer = lms[36][:2]
-            r_inner = lms[39][:2]
-            r_center = (r_outer + r_inner) / 2.0
-            r_width = max(1.0, abs(r_inner[0] - r_outer[0]))
-            r_pupil = lms[66][:2]
-            # Offset from eye center normalized by eye half-width
-            gaze_x_list.append((r_pupil[0] - r_center[0]) / (r_width * 0.5))
-            gaze_y_list.append((r_pupil[1] - r_center[1]) / (r_width * 0.4))
+        # OpenSeeFace landmark convention:
+        # lms[:, 0] is Y (vertical row, 0 at top, increases downwards)
+        # lms[:, 1] is X (horizontal column, 0 at left, increases rightwards)
+        # Right Eye: outer 36, inner 39, top 37/38, bot 40/41, pupil 66
+        if r_pupil_conf >= 0.35:
+            r_width = abs(float(lms[39, 1]) - float(lms[36, 1]))
+            r_center_x = (float(lms[36, 1]) + float(lms[39, 1])) * 0.5
+            r_top_y = (float(lms[37, 0]) + float(lms[38, 0])) * 0.5
+            r_bot_y = (float(lms[40, 0]) + float(lms[41, 0])) * 0.5
+            r_height = abs(r_bot_y - r_top_y)
+            r_center_y = (r_top_y + r_bot_y) * 0.5
 
-        if l_pupil_conf > 0.15:
-            l_inner = lms[42][:2]
-            l_outer = lms[45][:2]
-            l_center = (l_outer + l_inner) / 2.0
-            l_width = max(1.0, abs(l_outer[0] - l_inner[0]))
-            l_pupil = lms[67][:2]
-            gaze_x_list.append((l_pupil[0] - l_center[0]) / (l_width * 0.5))
-            gaze_y_list.append((l_pupil[1] - l_center[1]) / (l_width * 0.4))
+            if r_width >= 8.0:
+                dx = float(lms[66, 1]) - r_center_x
+                gaze_x_list.append(dx / (r_width * 0.25))
 
-        if gaze_x_list:
-            gx = _clamp(float(np.mean(gaze_x_list)), -1.0, 1.0)
-            gy = _clamp(float(np.mean(gaze_y_list)), -1.0, 1.0)
-            return {"x": gx, "y": gy}
+            if r_height >= 3.0:
+                dy = float(lms[66, 0]) - r_center_y
+                gaze_y_list.append(dy / (r_height * 0.30))
+
+        # Left Eye: inner 42, outer 45, top 43/44, bot 46/47, pupil 67
+        if l_pupil_conf >= 0.35:
+            l_width = abs(float(lms[45, 1]) - float(lms[42, 1]))
+            l_center_x = (float(lms[42, 1]) + float(lms[45, 1])) * 0.5
+            l_top_y = (float(lms[43, 0]) + float(lms[44, 0])) * 0.5
+            l_bot_y = (float(lms[46, 0]) + float(lms[47, 0])) * 0.5
+            l_height = abs(l_bot_y - l_top_y)
+            l_center_y = (l_top_y + l_bot_y) * 0.5
+
+            if l_width >= 8.0:
+                dx = float(lms[67, 1]) - l_center_x
+                gaze_x_list.append(dx / (l_width * 0.25))
+
+            if l_height >= 3.0:
+                dy = float(lms[67, 0]) - l_center_y
+                gaze_y_list.append(dy / (l_height * 0.30))
+
+        if not gaze_x_list and not gaze_y_list:
+            return {"x": 0.0, "y": 0.0}
+
+        def _dz(val: float, deadzone: float = 0.12) -> float:
+            if abs(val) <= deadzone:
+                return 0.0
+            sign = 1.0 if val > 0 else -1.0
+            return float(sign * min(1.0, (abs(val) - deadzone) / (1.0 - deadzone)))
+
+        gx = _dz(float(np.mean(gaze_x_list))) if gaze_x_list else 0.0
+        gy = _dz(float(np.mean(gaze_y_list))) if gaze_y_list else 0.0
+
+        return {"x": float(np.clip(gx, -1.0, 1.0)), "y": float(np.clip(gy, -1.0, 1.0))}
 
     except Exception:
         pass

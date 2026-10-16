@@ -188,45 +188,50 @@ class Feature():
             self.updating = False
         median = self.current_median
 
-        if self.min is None:
-            if x < median and (median - x) / median > self.threshold:
+        # Update min bound (for values below median)
+        if x < median:
+            if self.min is None:
+                if median > 1e-5 and (median - x) / median > self.threshold:
+                    if updating:
+                        self.min = x
+                        self.hard_min = self.min + self.hard_factor * (median - self.min)
+                    return -1.0
+            elif x < self.min:
                 if updating:
                     self.min = x
                     self.hard_min = self.min + self.hard_factor * (median - self.min)
-                return -1
-            return 0
-        else:
-            if x < self.min:
-                if updating:
-                    self.min = x
-                    self.hard_min = self.min + self.hard_factor * (median - self.min)
-                return -1
-        if self.max is None:
-            if x > median and (x - median) / median > self.threshold:
-                if updating:
-                    self.max = x
-                    self.hard_max = self.max - self.hard_factor * (self.max - median)
-                return 1
-            return 0
-        else:
-            if x > self.max:
+                return -1.0
+
+        # Update max bound (for values above median)
+        if x > median:
+            if self.max is None:
+                if median > 1e-5 and (x - median) / median > self.threshold:
+                    if updating:
+                        self.max = x
+                        self.hard_max = self.max - self.hard_factor * (self.max - median)
+                    return 1.0
+            elif x > self.max:
                 if updating:
                     self.max = x
                     self.hard_max = self.max - self.hard_factor * (self.max - median)
-                return 1
+                return 1.0
 
         if updating:
-            if self.min < self.hard_min:
+            if self.min is not None and self.min < self.hard_min:
                 self.min = self.hard_min * self.decay + self.min * (1 - self.decay)
-            if self.max > self.hard_max:
+            if self.max is not None and self.max > self.hard_max:
                 self.max = self.hard_max * self.decay + self.max * (1 - self.decay)
 
-        if x < median:
-            return - (1 - (x - self.min) / (median - self.min))
-        elif x > median:
-            return (x - median) / (self.max - median)
+        if self.min is not None and x < median:
+            denom = median - self.min
+            if denom > 1e-5:
+                return - (1.0 - (x - self.min) / denom)
+        elif self.max is not None and x > median:
+            denom = self.max - median
+            if denom > 1e-5:
+                return (x - median) / denom
 
-        return 0
+        return 0.0
 
 class FeatureExtractor():
     def __init__(self, max_feature_updates=0):

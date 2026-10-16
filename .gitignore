@@ -5,3 +5,6 @@
 /build
 /dist
 VTuberAvatar-v1.0.0-windows.zip
+models/face_landmarker.task
+models/openseeface/
+.superpowers/

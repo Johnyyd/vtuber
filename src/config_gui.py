@@ -464,6 +464,24 @@ class ConfigLauncherDialog(QDialog):
         form_tilt.addRow("Bù trừ góc nghiêng camera (độ):", self.spin_pitch_offset)
         layout.addWidget(group_tilt)
 
+        # Body & Idle Motion
+        group_body = QGroupBox("Chuyển động thân mình & Nhịp thở")
+        form_body = QFormLayout(group_body)
+        form_body.setSpacing(10)
+
+        self.spin_body_sway = QDoubleSpinBox()
+        self.spin_body_sway.setRange(0.0, 2.0)
+        self.spin_body_sway.setSingleStep(0.1)
+        self.spin_body_sway.setDecimals(2)
+        form_body.addRow("Độ đung đưa theo camera (Body Sway):", self.spin_body_sway)
+
+        self.spin_idle_breath = QDoubleSpinBox()
+        self.spin_idle_breath.setRange(0.0, 2.0)
+        self.spin_idle_breath.setSingleStep(0.1)
+        self.spin_idle_breath.setDecimals(2)
+        form_body.addRow("Độ thở & lắc lư tự động (Idle Breath):", self.spin_idle_breath)
+        layout.addWidget(group_body)
+
         # OneEuroFilter
         group_filter = QGroupBox("Bộ lọc chống rung chuyển động (OneEuroFilter)")
         form_filter = QFormLayout(group_filter)
@@ -553,6 +571,9 @@ class ConfigLauncherDialog(QDialog):
         self.spin_blink_dz.setValue(float(cfg.get("blink_deadzone", 0.13)))
         self.spin_blink_snap.setValue(float(cfg.get("blink_snap_thresh", 0.25)))
 
+        self.spin_body_sway.setValue(float(cfg.get("body_sway_gain", 1.0)))
+        self.spin_idle_breath.setValue(float(cfg.get("idle_breath_intensity", 1.0)))
+
         self.spin_pitch_offset.setValue(float(cfg.get("pitch_offset_deg", 18.0)))
         self.spin_filter_cutoff.setValue(float(cfg.get("filter_min_cutoff", 0.8)))
         self.spin_filter_beta.setValue(float(cfg.get("filter_beta", 0.02)))
@@ -579,6 +600,9 @@ class ConfigLauncherDialog(QDialog):
 
             "blink_deadzone": self.spin_blink_dz.value(),
             "blink_snap_thresh": self.spin_blink_snap.value(),
+
+            "body_sway_gain": self.spin_body_sway.value(),
+            "idle_breath_intensity": self.spin_idle_breath.value(),
 
             "pitch_offset_deg": self.spin_pitch_offset.value(),
             "filter_min_cutoff": self.spin_filter_cutoff.value(),

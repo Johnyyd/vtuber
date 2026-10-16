@@ -8,6 +8,10 @@
   let mouthMesh = null;
   let headBone = null;
   let neckBone = null;
+  let spineBone = null;
+  let chestBone = null;
+  let upperChestBone = null;
+  let hipsBone = null;
   let eyeLeftBone = null;
   let eyeRightBone = null;
   let leftUpperArmBone = null;
@@ -63,6 +67,10 @@
       x: 0.0,
       y: 0.0,
     },
+    body: {
+      sway_gain: 1.0,
+      breath_gain: 1.0,
+    },
   };
 
   const currentMotion = {
@@ -70,6 +78,7 @@
     vrc: { ...targetMotion.vrc },
     rotation: { ...targetMotion.rotation },
     gaze: { ...targetMotion.gaze },
+    body: { ...targetMotion.body },
   };
 
   let lastMotionTimestamp = 0;
@@ -358,6 +367,18 @@
         neckBone = currentVrm.humanoid.getBoneNode("neck") ||
           (window.THREE_VRM && window.THREE_VRM.VRMSchema &&
             currentVrm.humanoid.getBoneNode(window.THREE_VRM.VRMSchema.HumanoidBoneName.Neck));
+        spineBone = currentVrm.humanoid.getBoneNode("spine") ||
+          (window.THREE_VRM && window.THREE_VRM.VRMSchema &&
+            currentVrm.humanoid.getBoneNode(window.THREE_VRM.VRMSchema.HumanoidBoneName.Spine));
+        chestBone = currentVrm.humanoid.getBoneNode("chest") ||
+          (window.THREE_VRM && window.THREE_VRM.VRMSchema &&
+            currentVrm.humanoid.getBoneNode(window.THREE_VRM.VRMSchema.HumanoidBoneName.Chest));
+        upperChestBone = currentVrm.humanoid.getBoneNode("upperChest") ||
+          (window.THREE_VRM && window.THREE_VRM.VRMSchema &&
+            currentVrm.humanoid.getBoneNode(window.THREE_VRM.VRMSchema.HumanoidBoneName.UpperChest));
+        hipsBone = currentVrm.humanoid.getBoneNode("hips") ||
+          (window.THREE_VRM && window.THREE_VRM.VRMSchema &&
+            currentVrm.humanoid.getBoneNode(window.THREE_VRM.VRMSchema.HumanoidBoneName.Hips));
         eyeLeftBone = currentVrm.humanoid.getBoneNode("leftEye") ||
           (window.THREE_VRM && window.THREE_VRM.VRMSchema &&
             currentVrm.humanoid.getBoneNode(window.THREE_VRM.VRMSchema.HumanoidBoneName.LeftEye));
@@ -393,6 +414,18 @@
       }
       if (!neckBone && (obj.name === "J_Bip_C_Neck" || obj.name === "mixamorig:Neck" || obj.name.endsWith("Neck"))) {
         neckBone = obj;
+      }
+      if (!spineBone && (obj.name === "J_Bip_C_Spine" || obj.name === "mixamorig:Spine" || obj.name.endsWith("Spine"))) {
+        spineBone = obj;
+      }
+      if (!chestBone && (obj.name === "J_Bip_C_Chest" || obj.name === "mixamorig:Spine1" || obj.name.endsWith("Chest"))) {
+        chestBone = obj;
+      }
+      if (!upperChestBone && (obj.name === "J_Bip_C_UpperChest" || obj.name === "mixamorig:Spine2" || obj.name.endsWith("UpperChest"))) {
+        upperChestBone = obj;
+      }
+      if (!hipsBone && (obj.name === "J_Bip_C_Hips" || obj.name === "mixamorig:Hips" || obj.name.endsWith("Hips"))) {
+        hipsBone = obj;
       }
       if (!eyeLeftBone && (obj.name.includes("Eye_L") || obj.name.includes("leftEye") || obj.name.includes("Eye.L"))) {
         eyeLeftBone = obj;
@@ -469,6 +502,15 @@
       targetMotion.gaze.y = data.gaze.y || 0.0;
     }
 
+    if (data.body) {
+      if (typeof data.body.sway_gain === "number") {
+        targetMotion.body.sway_gain = data.body.sway_gain;
+      }
+      if (typeof data.body.breath_gain === "number") {
+        targetMotion.body.breath_gain = data.body.breath_gain;
+      }
+    }
+
     lastMotionTimestamp = performance.now();
   };
 
@@ -531,7 +573,14 @@
     currentMotion.rotation.roll +=
       (targetMotion.rotation.roll - currentMotion.rotation.roll) * lerpRot;
 
-    // Apply head and neck bone rotations (Euler: X=pitch, Y=yaw, Z=roll)
+    // Smooth LERP for body parameters
+    currentMotion.body.sway_gain += (targetMotion.body.sway_gain - currentMotion.body.sway_gain) * 0.1;
+    currentMotion.body.breath_gain += (targetMotion.body.breath_gain - currentMotion.body.breath_gain) * 0.1;
+
+    const swayGain = currentMotion.body.sway_gain;
+    const breathGain = currentMotion.body.breath_gain;
+
+    // Apply head, neck, and torso bone rotations (Euler: X=pitch, Y=yaw, Z=roll)
     // Pitch: inverted so looking up tilts head backward
     // Yaw: follows natural user gaze
     // Roll: inverted to correct left/right tilt inversion
@@ -539,11 +588,57 @@
     const y = -currentMotion.rotation.yaw;
     const r = currentMotion.rotation.roll;
 
+    // 1. Procedural breathing and gentle idle sway
+    const time = clock.getElapsedTime();
+    // Breathing cycle (~3.6s per cycle, 1.75 rad/s)
+    const breathCycle = Math.sin(time * 1.75);
+    const breathPitch = breathCycle * 0.012 * breathGain;
+    const breathY = breathCycle * 0.003 * breathGain;
+
+    // Harmonic idle swaying (two asynchronous sine waves preventing robotic loop)
+    const idleRoll = (Math.sin(time * 0.7) * 0.012 + Math.cos(time * 1.1) * 0.006) * breathGain;
+    const idleYaw = Math.sin(time * 0.5) * 0.008 * breathGain;
+    const idleX = (Math.sin(time * 0.7) * 0.005) * breathGain;
+
+    // 2. Kinematic Torso Sway (distribute pitch, yaw, roll across spine, chest, neck, head)
+    const spinePitch = (p * 0.12 * swayGain) + (breathPitch * 0.5);
+    const spineYaw = (y * 0.10 * swayGain) + (idleYaw * 0.4);
+    const spineRoll = (r * 0.18 * swayGain) + (idleRoll * 0.6);
+
+    const chestPitch = (p * 0.14 * swayGain) + breathPitch;
+    const chestYaw = (y * 0.14 * swayGain) + (idleYaw * 0.6);
+    const chestRoll = (r * 0.18 * swayGain) + (idleRoll * 0.4);
+
+    // Neck and Head take remaining rotation for accurate gaze
+    const neckPitch = p * 0.25;
+    const neckYaw = y * 0.25;
+    const neckRoll = r * 0.25;
+
+    const headPitch = p * 0.49;
+    const headYaw = y * 0.51;
+    const headRoll = r * 0.39;
+
+    if (spineBone) {
+      spineBone.rotation.set(spinePitch, spineYaw, spineRoll);
+    }
+    if (chestBone) {
+      chestBone.rotation.set(chestPitch, chestYaw, chestRoll);
+    } else if (upperChestBone) {
+      upperChestBone.rotation.set(chestPitch, chestYaw, chestRoll);
+    }
     if (neckBone) {
-      neckBone.rotation.set(p * 0.3, y * 0.3, r * 0.3);
+      neckBone.rotation.set(neckPitch, neckYaw, neckRoll);
     }
     if (headBone) {
-      headBone.rotation.set(p * 0.7, y * 0.7, r * 0.7);
+      headBone.rotation.set(headPitch, headYaw, headRoll);
+    }
+
+    // Lateral translation when leaning + vertical breathing motion on root
+    const rootBaseY = -0.10;
+    const lateralSway = (r * 0.04 * swayGain) + idleX;
+    if (currentVrm && currentVrm.scene) {
+      currentVrm.scene.position.x = lateralSway;
+      currentVrm.scene.position.y = rootBaseY + breathY;
     }
 
     // Apply natural lowered resting pose for arms (hands rested comfortably in front of hips)

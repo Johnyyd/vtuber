@@ -60,6 +60,16 @@ frown_deadzone = 0.04
 frown_gain = 3.20
 
 
+[BODY_AND_IDLE_MOTION]
+# Dung dua than minh theo camera (Kinematic Torso Sway):
+# - body_sway_gain: He so uon cong cot song/nguc khi nghieng dau (mac dinh: 1.0, pham vi: 0.0 - 2.0, 0.0 la tat)
+body_sway_gain = 1.00
+
+# Nhip tho va dung dua vi mo tu dong khi ngoi yen (Procedural Idle & Breathing):
+# - idle_breath_intensity: Do manh nhip tho va chuyen dong tu dong (mac dinh: 1.0, pham vi: 0.0 - 2.0, 0.0 la tat)
+idle_breath_intensity = 1.00
+
+
 [CAMERA_AND_FILTER]
 # Goc bu tru do nghieng camera khi dat tren/duoi man hinh (do, mac dinh: 18.0)
 pitch_offset_deg = 18.0

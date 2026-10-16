@@ -41,6 +41,10 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "frown_deadzone": 0.04,
     "frown_gain": 3.2,
 
+    # [BODY_AND_IDLE_MOTION]
+    "body_sway_gain": 1.0,
+    "idle_breath_intensity": 1.0,
+
     # [CAMERA_AND_FILTER]
     "pitch_offset_deg": 18.0,
     "filter_min_cutoff": 0.8,
@@ -116,6 +120,16 @@ frown_deadzone = {cfg['frown_deadzone']:.2f}
 frown_gain = {cfg['frown_gain']:.2f}
 
 
+[BODY_AND_IDLE_MOTION]
+# Dung dua than minh theo camera (Kinematic Torso Sway):
+# - body_sway_gain: He so uon cong cot song/nguc khi nghieng dau (mac dinh: 1.0, pham vi: 0.0 - 2.0, 0.0 la tat)
+body_sway_gain = {cfg['body_sway_gain']:.2f}
+
+# Nhip tho va dung dua vi mo tu dong khi ngoi yen (Procedural Idle & Breathing):
+# - idle_breath_intensity: Do manh nhip tho va chuyen dong tu dong (mac dinh: 1.0, pham vi: 0.0 - 2.0, 0.0 la tat)
+idle_breath_intensity = {cfg['idle_breath_intensity']:.2f}
+
+
 [CAMERA_AND_FILTER]
 # Goc bu tru do nghieng camera khi dat tren/duoi man hinh (do, mac dinh: 18.0)
 pitch_offset_deg = {cfg['pitch_offset_deg']:.1f}
@@ -186,6 +200,10 @@ def load_config(file_path: str = DEFAULT_CONFIG_PATH) -> Dict[str, Any]:
     config["brow_raise_gain"] = get_float("TRACKING_SENSITIVITY", "brow_raise_gain", config["brow_raise_gain"])
     config["frown_deadzone"] = get_float("TRACKING_SENSITIVITY", "frown_deadzone", config["frown_deadzone"])
     config["frown_gain"] = get_float("TRACKING_SENSITIVITY", "frown_gain", config["frown_gain"])
+
+    # Parse BODY_AND_IDLE_MOTION
+    config["body_sway_gain"] = get_float("BODY_AND_IDLE_MOTION", "body_sway_gain", config.get("body_sway_gain", 1.0))
+    config["idle_breath_intensity"] = get_float("BODY_AND_IDLE_MOTION", "idle_breath_intensity", config.get("idle_breath_intensity", 1.0))
 
     # Parse CAMERA_AND_FILTER
     config["pitch_offset_deg"] = get_float("CAMERA_AND_FILTER", "pitch_offset_deg", config["pitch_offset_deg"])

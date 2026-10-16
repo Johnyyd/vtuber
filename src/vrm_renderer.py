@@ -51,9 +51,10 @@ def format_motion_packet(
     rotation: Optional[Dict[str, float]] = None,
     vrm: Optional[Dict[str, float]] = None,
     gaze: Optional[Dict[str, float]] = None,
+    body: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Any]:
     """
-    Format VRM and VRC blendshape weights, 3D head rotation, and 2D iris gaze into a clean motion packet.
+    Format VRM and VRC blendshape weights, 3D head rotation, 2D iris gaze, and body motion into a clean motion packet.
     """
     if vrc is None:
         vrc = {name: (1.0 if name == "vrc_v_sil" else 0.0) for name in VRC_TARGETS}
@@ -63,12 +64,15 @@ def format_motion_packet(
         rotation = {"pitch": 0.0, "yaw": 0.0, "roll": 0.0}
     if gaze is None:
         gaze = {"x": 0.0, "y": 0.0}
+    if body is None:
+        body = {"sway_gain": 1.0, "breath_gain": 1.0}
 
     return {
         "vrm": vrm,
         "vrc": vrc,
         "rotation": rotation,
         "gaze": gaze,
+        "body": body,
         "timestamp": time.time(),
     }
 
@@ -140,6 +144,8 @@ class TrackingWorker(QThread):
         self.filter_gaze_x = OneEuroFilter(min_cutoff=cutoff * 1.25, beta=beta * 1.3)
         self.filter_gaze_y = OneEuroFilter(min_cutoff=cutoff * 1.25, beta=beta * 1.3)
         self.last_stable_gaze = {"x": 0.0, "y": 0.0}
+        self.body_sway_gain = float(self.config.get("body_sway_gain", 1.0))
+        self.idle_breath_intensity = float(self.config.get("idle_breath_intensity", 1.0))
 
     def run(self):
         self.status_changed.emit("Initializing webcam & FaceLandmarker...")
@@ -234,11 +240,16 @@ class TrackingWorker(QThread):
                         }
                         self.last_stable_gaze = dict(filtered_gaze)
 
+                    body_params = {
+                        "sway_gain": self.body_sway_gain,
+                        "breath_gain": self.idle_breath_intensity,
+                    }
                     packet = format_motion_packet(
                         vrc=vrc,
                         rotation=filtered_rotation,
                         vrm=vrm_shapes,
                         gaze=filtered_gaze,
+                        body=body_params,
                     )
                     self.motion_ready.emit(packet)
                 else:
@@ -249,7 +260,11 @@ class TrackingWorker(QThread):
                     self.filter_gaze_x.reset()
                     self.filter_gaze_y.reset()
                     self.last_stable_gaze = {"x": 0.0, "y": 0.0}
-                    packet = format_motion_packet(None, None, None, None)
+                    body_params = {
+                        "sway_gain": self.body_sway_gain,
+                        "breath_gain": self.idle_breath_intensity,
+                    }
+                    packet = format_motion_packet(None, None, None, None, body=body_params)
                     self.motion_ready.emit(packet)
 
             except Exception as e:

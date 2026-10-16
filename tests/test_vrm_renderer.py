@@ -18,6 +18,7 @@ class TestVRMRenderer(unittest.TestCase):
         self.assertIn("vrc", packet)
         self.assertIn("rotation", packet)
         self.assertIn("gaze", packet)
+        self.assertIn("body", packet)
         self.assertEqual(packet["vrm"]["blink"], vrm_input["blink"])
         self.assertEqual(packet["vrm"]["a"], vrm_input["a"])
         self.assertEqual(packet["vrc"]["vrc_blink"], vrc_input["vrc_blink"])
@@ -25,6 +26,8 @@ class TestVRMRenderer(unittest.TestCase):
         self.assertEqual(packet["rotation"]["yaw"], -0.25)
         self.assertEqual(packet["rotation"]["roll"], 0.05)
         self.assertEqual(packet["gaze"], {"x": 0.0, "y": 0.0})
+        self.assertEqual(packet["body"]["sway_gain"], 1.0)
+        self.assertEqual(packet["body"]["breath_gain"], 1.0)
 
         # Ensure valid JSON string serialization
         json_str = json.dumps(packet)
@@ -33,6 +36,7 @@ class TestVRMRenderer(unittest.TestCase):
         self.assertIn("vrc_v_aa", json_str)
         self.assertIn("pitch", json_str)
         self.assertIn("gaze", json_str)
+        self.assertIn("body", json_str)
 
     def test_format_motion_packet_empty(self):
         packet = format_motion_packet(None, None)
@@ -40,9 +44,11 @@ class TestVRMRenderer(unittest.TestCase):
         self.assertIn("vrc", packet)
         self.assertIn("rotation", packet)
         self.assertIn("gaze", packet)
+        self.assertIn("body", packet)
         self.assertEqual(packet["vrm"]["neutral"], 1.0)
         self.assertEqual(packet["rotation"], {"pitch": 0.0, "yaw": 0.0, "roll": 0.0})
         self.assertEqual(packet["gaze"], {"x": 0.0, "y": 0.0})
+        self.assertEqual(packet["body"], {"sway_gain": 1.0, "breath_gain": 1.0})
 
     def test_camera_reader_class_lifecycle(self):
         try:

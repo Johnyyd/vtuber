@@ -524,33 +524,54 @@ def map_mediapipe_to_vrm(
         o_val = min(o_max, _clamp(cand_o))
 
     # VOWELS I & E (Horizontal mouth shapes):
-    # Stretching mouth sideways (detected via mouthStretch or horizontal smile/landmark component)
+    # Stretching mouth sideways (detected via mouthStretch)
     horiz_stretch = max(stretch, (g("mouthStretchLeft") + g("mouthStretchRight")) * 0.5)
-    horiz_smile = max(0.0, smile - 0.04)
 
-    # For speech I/E, blend landmark stretch and blendshapes
-    blend_horiz = max(horiz_stretch * 2.5, horiz_smile * 1.6)
-    horiz_active = max(blend_horiz, lm_horiz)
+    # 1. Smile vs Vowel Separation:
+    # A smile elevates mouth corners upwards (Joy). It is NOT vowel I or E!
+    # A closed-mouth smile (jaw <= 0.05 and raw_speech <= 0.05) must NEVER trigger I or E.
+    # True I/E requires lateral retraction (mouthStretch > 0.04) or landmark width expansion (lm_horiz > 0.04).
+    # During open-mouth speech (open_metric > 0.05), mouthSmile can contribute to speech width.
+    horiz_active = 0.0
+    open_metric = max(raw_speech, jaw)
 
-    if horiz_active > 0.04:
-        horiz_mag = _clamp(_dz(horiz_active, 0.02) * 2.8)
-        # Speech biomechanics:
-        # Close front unrounded vowel 'I' has teeth close together (raw_speech < 0.10)
-        # Open-mid front unrounded vowel 'E' has jaw noticeably open (raw_speech >= 0.10)
-        if raw_speech <= 0.08:
-            i_val = horiz_mag
-            e_val = 0.0
-        elif raw_speech >= 0.18:
-            e_val = horiz_mag
-            i_val = 0.0
-        else:
-            # Smooth interpolation between I and E across transition zone (0.08 .. 0.18)
-            t_e = (raw_speech - 0.08) / 0.10
-            e_val = horiz_mag * t_e
-            i_val = horiz_mag * (1.0 - t_e)
-    else:
+    if mouth_occluded or (mouth_close > 0.35 and horiz_stretch < 0.15):
         i_val = 0.0
         e_val = 0.0
+    else:
+        stretch_comp = (horiz_stretch - 0.04) * 2.8 if horiz_stretch > 0.04 else 0.0
+        # Only allow smile to contribute if mouth is actively speaking or lateral stretch is already engaged
+        if (open_metric > 0.05 or horiz_stretch > 0.05) and smile > 0.04:
+            smile_comp = (smile - 0.04) * 2.0
+            blend_horiz = max(stretch_comp, stretch_comp * 0.4 + smile_comp * 0.7)
+        else:
+            blend_horiz = stretch_comp
+
+        lm_horiz_act = _clamp((lm_horiz - 0.04) * 2.5) if lm_horiz > 0.04 else 0.0
+        horiz_active = max(blend_horiz, lm_horiz_act)
+
+        # If smile is dominant over stretch (e.g. wide grin / laugh), Joy takes priority over I/E
+        if smile > 0.30 and smile > horiz_stretch * 2.2 and open_metric < 0.15:
+            horiz_active = 0.0
+
+        if horiz_active > 0.04:
+            horiz_mag = _clamp(_dz(horiz_active, 0.02) * 2.6)
+            # Speech biomechanics:
+            # Close front unrounded vowel 'I' has teeth close together (open_metric <= 0.10)
+            # Open-mid front unrounded vowel 'E' has jaw noticeably open (open_metric >= 0.20)
+            if open_metric <= 0.10:
+                i_val = horiz_mag
+                e_val = 0.0
+            elif open_metric >= 0.20:
+                e_val = horiz_mag
+                i_val = 0.0
+            else:
+                t_e = (open_metric - 0.10) / 0.10
+                e_val = horiz_mag * t_e
+                i_val = horiz_mag * (1.0 - t_e)
+        else:
+            i_val = 0.0
+            e_val = 0.0
 
     vrm["u"] = _clamp(u_val)
     vrm["o"] = _clamp(o_val)

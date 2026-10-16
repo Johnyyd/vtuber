@@ -126,8 +126,43 @@ class TestOpenSeeFaceMapping(unittest.TestCase):
         self.assertEqual(packet["gaze"], gaze)
         self.assertEqual(packet["body"], body)
 
+    def test_openseeface_vowel_i_specificity_and_false_trigger_rejection(self):
+        try:
+            from openseeface_tracker import map_openseeface_to_vrm
+        except ImportError:
+            from src.openseeface_tracker import map_openseeface_to_vrm
+
+        # 1. Normal talking A (moderate opening, ordinary mouth width): I must be 0.0
+        face_a = MockFace()
+        face_a.current_features["mouth_open"] = 0.18
+        face_a.current_features["mouth_wide"] = 0.12
+        face_a.current_features["mouth_corner_updown_l"] = 0.0
+        face_a.current_features["mouth_corner_updown_r"] = 0.0
+        vrm_a = map_openseeface_to_vrm(face_a)
+        self.assertEqual(vrm_a["i"], 0.0, "Normal speaking width must produce 0.0 'I'")
+        self.assertGreater(vrm_a["a"], 0.20, "Speaking A must remain responsive")
+
+        # 2. Closed mouth smile: I must be 0.0, Joy must be active
+        face_smile = MockFace()
+        face_smile.current_features["mouth_open"] = 0.03
+        face_smile.current_features["mouth_wide"] = 0.25
+        face_smile.current_features["mouth_corner_updown_l"] = 0.40
+        face_smile.current_features["mouth_corner_updown_r"] = 0.40
+        vrm_smile = map_openseeface_to_vrm(face_smile)
+        self.assertEqual(vrm_smile["i"], 0.0, "Smiling with closed mouth must produce 0.0 'I'")
+        self.assertGreater(vrm_smile["joy"], 0.40, "Smiling must trigger Joy")
+
+        # 3. Deliberately pronounced 'I' (small vertical opening, wide lateral stretch)
+        face_i = MockFace()
+        face_i.current_features["mouth_open"] = 0.10
+        face_i.current_features["mouth_wide"] = 0.45
+        vrm_i = map_openseeface_to_vrm(face_i)
+        self.assertGreater(vrm_i["i"], 0.40, "Pronounced 'I' must trigger responsively")
+        self.assertGreater(vrm_i["i"], vrm_i["a"], "When pronouncing 'I', 'I' must dominate over 'A'")
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 

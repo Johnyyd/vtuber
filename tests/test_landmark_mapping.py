@@ -722,8 +722,26 @@ class TestLandmarkMapping(unittest.TestCase):
         self.assertEqual(vrm_wide["o"], 0.0, "Wide mouth speech must suppress accidental O")
         self.assertGreater(vrm_wide["a"], 0.40, "Speech A must remain strong and not be overridden by O")
 
+    def test_smile_with_closed_mouth_does_not_trigger_vowel_i(self):
+        try:
+            from landmark_mapping import map_mediapipe_to_vrm
+        except ImportError:
+            from src.landmark_mapping import map_mediapipe_to_vrm
+
+        # Smiling with closed lips: Joy must trigger, I must be 0.0
+        vrm_smile = map_mediapipe_to_vrm({
+            "jawOpen": 0.02,
+            "mouthSmileLeft": 0.25,
+            "mouthSmileRight": 0.25,
+            "mouthStretchLeft": 0.01,
+            "mouthStretchRight": 0.01,
+        })
+        self.assertEqual(vrm_smile["i"], 0.0, "Smiling with closed mouth must produce 0.0 'I'")
+        self.assertGreater(vrm_smile["joy"], 0.35, "Smiling must trigger Joy cleanly")
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 

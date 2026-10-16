@@ -107,19 +107,42 @@ def map_openseeface_to_vrm(face: Any, config: Optional[dict] = None) -> Dict[str
         v_o = 0.0
     else:
         open_val = _clamp((mouth_open_raw - mouth_open_deadzone) * mouth_open_gain)
-        wide_val = _clamp(mouth_wide_raw)
+
+        # Deadzone on mouth_wide_raw to prevent ordinary speech width from false-triggering I & E
+        # In OpenSeeFace, mouth_wide_raw is normalized offset from median (resting width).
+        # Deliberate horizontal vowel stretch requires mouth_wide_raw > 0.20
+        wide_deadzone = 0.20
+        if mouth_wide_raw > wide_deadzone:
+            wide_active = _clamp((mouth_wide_raw - wide_deadzone) * 2.5)
+        else:
+            wide_active = 0.0
+
+        # Transition between I and E based on mouth vertical opening:
+        # Minimal open (open_val <= 0.12) -> pure 'I'
+        # Moderately open (open_val >= 0.28) -> pure 'E'
+        # Intermediate -> smooth transition
+        if open_val <= 0.12:
+            i_ratio = 1.0
+            e_ratio = 0.0
+        elif open_val >= 0.28:
+            i_ratio = 0.0
+            e_ratio = 1.0
+        else:
+            t = (open_val - 0.12) / 0.16
+            i_ratio = 1.0 - t
+            e_ratio = t
 
         # Natural vowel mapping:
-        # 'a': tall opening, moderate width
-        v_a = _clamp(open_val * (1.0 - wide_val * 0.45))
-        # 'i': wide spread with low/moderate height
-        v_i = _clamp(wide_val * (1.0 - open_val * 0.40))
+        # 'a': tall opening, normal width (attenuated only during deliberate wide stretch)
+        v_a = _clamp(open_val * (1.0 - wide_active * 0.40))
+        # 'i': deliberate horizontal stretch with low opening
+        v_i = _clamp(wide_active * i_ratio)
         # 'u': round forward pucker (low width, moderate opening)
-        v_u = _clamp((open_val * 0.65) * (1.0 - wide_val * 0.85), 0.0, u_max_clamp)
-        # 'e': wide grin-like opening (both open and wide)
-        v_e = _clamp(open_val * 0.85 * (wide_val * 1.4))
+        v_u = _clamp((open_val * 0.65) * (1.0 - max(0.0, mouth_wide_raw) * 0.85), 0.0, u_max_clamp)
+        # 'e': wide grin-like opening (both open and deliberately wide)
+        v_e = _clamp(open_val * 1.6 * wide_active * e_ratio)
         # 'o': round mouth opening with narrow corners
-        v_o = _clamp(open_val * (1.0 - wide_val * 0.75) * (o_gain / 1.8), 0.0, o_max_clamp)
+        v_o = _clamp(open_val * (1.0 - max(0.0, mouth_wide_raw) * 0.75) * (o_gain / 1.8), 0.0, o_max_clamp)
 
     # Emotions
     smile_l = float(features.get("mouth_corner_updown_l", 0.0))

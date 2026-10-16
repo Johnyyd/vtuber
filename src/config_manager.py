@@ -47,9 +47,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "idle_breath_intensity": 1.0,
 
     # [HAIR_PHYSICS]
-    "hair_gravity": 1.60,
-    "hair_stiffness": 0.38,
-    "hair_drag": 0.58,
+    "hair_gravity": 0.15,
+    "hair_stiffness": 0.95,
+    "hair_drag": 0.50,
 
     # [CAMERA_AND_FILTER]
     "pitch_offset_deg": 18.0,

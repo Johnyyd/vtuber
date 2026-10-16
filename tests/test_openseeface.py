@@ -149,6 +149,36 @@ class TestOpenSeeFaceMapping(unittest.TestCase):
         self.assertEqual(packet["gaze"], gaze)
         self.assertEqual(packet["body"], body)
 
+    def test_openseeface_landmark_geometric_pose(self):
+        try:
+            from openseeface_tracker import extract_head_pose
+        except ImportError:
+            from src.openseeface_tracker import extract_head_pose
+
+        class LandmarkFace:
+            def __init__(self):
+                self.lms = np.zeros((68, 3), dtype=np.float32)
+                # In OpenSeeFace, column 0 is Y (vertical), column 1 is X (horizontal)
+                # Neutral level face at center (Y=300, X=320)
+                # Right eye (landmarks 36, 39) at Y=280, X=270
+                self.lms[36] = [280.0, 260.0, 1.0]
+                self.lms[39] = [280.0, 280.0, 1.0]
+                # Left eye (landmarks 42, 45) at Y=280, X=360
+                self.lms[42] = [280.0, 350.0, 1.0]
+                self.lms[45] = [280.0, 370.0, 1.0]
+                # Nose bridge (27) at Y=270, X=315
+                self.lms[27] = [270.0, 315.0, 1.0]
+                # Nose tip (30) at Y=310, X=315
+                self.lms[30] = [310.0, 315.0, 1.0]
+                # Chin (8) at Y=366, X=315 (top=40, bottom=56 -> ratio=1.40)
+                self.lms[8] = [366.0, 315.0, 1.0]
+
+        face = LandmarkFace()
+        pose = extract_head_pose(face, pitch_offset_deg=18.0)
+        self.assertAlmostEqual(pose["roll"], 0.0, places=2)
+        self.assertAlmostEqual(pose["yaw"], 0.0, places=2)
+        self.assertAlmostEqual(pose["pitch"], 0.0, places=2)
+
     def test_openseeface_vowel_i_specificity_and_false_trigger_rejection(self):
         try:
             from openseeface_tracker import map_openseeface_to_vrm

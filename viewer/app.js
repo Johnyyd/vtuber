@@ -70,9 +70,9 @@
     body: {
       sway_gain: 1.0,
       breath_gain: 1.0,
-      hair_gravity: 1.60,
-      hair_stiffness: 0.38,
-      hair_drag: 0.58,
+      hair_gravity: 0.15,
+      hair_stiffness: 0.95,
+      hair_drag: 0.50,
     },
   };
 
@@ -508,9 +508,9 @@
     const mgr = currentVrm.springBoneManager;
     if (!mgr.springBoneGroupList) return;
 
-    const grav = typeof gravityPower === "number" ? gravityPower : 1.60;
-    const stiff = typeof stiffnessForce === "number" ? stiffnessForce : 0.38;
-    const drag = typeof dragForce === "number" ? dragForce : 0.58;
+    const grav = typeof gravityPower === "number" ? gravityPower : 0.15;
+    const stiff = typeof stiffnessForce === "number" ? stiffnessForce : 0.95;
+    const drag = typeof dragForce === "number" ? dragForce : 0.50;
 
     if (
       lastAppliedHairParams.gravity === grav &&
@@ -680,10 +680,10 @@
     // Pitch: inverted so looking up tilts head backward
     // Yaw: follows natural user gaze
     // Roll: inverted to correct left/right tilt inversion
-    // Clamp to [-1.0, 1.0] rad (~ +-57 deg) to protect against extreme out-of-frame displacement
-    const p = Math.max(-1.0, Math.min(1.0, -currentMotion.rotation.pitch));
-    const y = Math.max(-1.0, Math.min(1.0, -currentMotion.rotation.yaw));
-    const r = Math.max(-1.0, Math.min(1.0, currentMotion.rotation.roll));
+    // Clamp to anatomical cervical limits to prevent any anomalous displacement
+    const p = Math.max(-0.60, Math.min(0.60, -currentMotion.rotation.pitch));
+    const y = Math.max(-0.70, Math.min(0.70, -currentMotion.rotation.yaw));
+    const r = Math.max(-0.50, Math.min(0.50, currentMotion.rotation.roll));
 
     // 1. Procedural breathing and gentle idle sway
     const time = clock.getElapsedTime();
@@ -732,7 +732,7 @@
 
     // Lateral translation when leaning + vertical breathing motion on root
     const rootBaseY = -0.10;
-    const lateralSway = Math.max(-0.20, Math.min(0.20, (r * 0.04 * swayGain) + idleX));
+    const lateralSway = Math.max(-0.15, Math.min(0.15, (r * 0.04 * swayGain) + idleX));
     if (currentVrm && currentVrm.scene) {
       currentVrm.scene.position.x = lateralSway;
       currentVrm.scene.position.y = rootBaseY + breathY;

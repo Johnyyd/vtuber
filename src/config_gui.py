@@ -617,9 +617,9 @@ class ConfigLauncherDialog(QDialog):
         self.spin_body_sway.setValue(float(cfg.get("body_sway_gain", 1.0)))
         self.spin_idle_breath.setValue(float(cfg.get("idle_breath_intensity", 1.0)))
 
-        self.spin_hair_gravity.setValue(float(cfg.get("hair_gravity", 1.60)))
-        self.spin_hair_stiffness.setValue(float(cfg.get("hair_stiffness", 0.38)))
-        self.spin_hair_drag.setValue(float(cfg.get("hair_drag", 0.58)))
+        self.spin_hair_gravity.setValue(float(cfg.get("hair_gravity", 0.15)))
+        self.spin_hair_stiffness.setValue(float(cfg.get("hair_stiffness", 0.95)))
+        self.spin_hair_drag.setValue(float(cfg.get("hair_drag", 0.50)))
 
         self.spin_pitch_offset.setValue(float(cfg.get("pitch_offset_deg", 18.0)))
         self.spin_filter_cutoff.setValue(float(cfg.get("filter_min_cutoff", 0.8)))

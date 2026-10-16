@@ -247,29 +247,73 @@ def map_openseeface_to_vrc(face: Any) -> Dict[str, float]:
 
 def extract_head_pose(face: Any, pitch_offset_deg: float = 18.0) -> Dict[str, float]:
     """
-    Extract 3D head rotation (Pitch, Yaw, Roll) from OpenSeeFace Euler angles in degrees,
-    and convert to radians for the 3D VRM skeletal pipeline.
+    Extract 3D head rotation (Pitch, Yaw, Roll in radians) for the 3D VRM skeletal pipeline.
+    Prefers robust geometric landmark triangulation from 68 anatomical landmarks;
+    falls back to Euler angles if landmarks are absent.
     """
+    lms = getattr(face, "lms", None)
+    if (
+        lms is not None
+        and len(lms) >= 68
+        and (abs(float(lms[30, 0])) > 1.0 or abs(float(lms[30, 1])) > 1.0)
+    ):
+        # OpenSeeFace landmark convention:
+        # lms[:, 0] = Y (vertical pixel coordinates, pointing down)
+        # lms[:, 1] = X (horizontal pixel coordinates, pointing right)
+        # Right eye (landmarks 36..41), Left eye (landmarks 42..47)
+        x_r = float((lms[36, 1] + lms[39, 1]) * 0.5)
+        y_r = float((lms[36, 0] + lms[39, 0]) * 0.5)
+        x_l = float((lms[42, 1] + lms[45, 1]) * 0.5)
+        y_l = float((lms[42, 0] + lms[45, 0]) * 0.5)
+
+        dx = x_l - x_r
+        dy = y_l - y_r
+        eye_dist = float(np.sqrt(dx * dx + dy * dy))
+        # 1. Roll: Angle of eye line relative to horizontal
+        roll = float(np.arctan2(dy, dx))
+
+        # 2. Yaw: Nose tip horizontal offset from eye midpoint
+        x_eye = (x_r + x_l) * 0.5
+        x_nose = float(lms[30, 1])
+        yaw_offset = (x_nose - x_eye) / max(eye_dist, 1.0)
+        yaw = float(yaw_offset * 1.5)
+
+        # 3. Pitch: Vertical facial proportion of bridge-to-nose vs nose-to-chin
+        y_nose = float(lms[30, 0])
+        y_bridge = float(lms[27, 0])
+        y_chin = float(lms[8, 0])
+        top_dist = max(y_nose - y_bridge, 1.0)
+        bottom_dist = max(y_chin - y_nose, 1.0)
+        ratio = bottom_dist / top_dist
+        # Baseline vertical ratio for neutral upright head is ~1.40
+        raw_pitch = float((ratio - 1.40) * 0.8)
+        # Compensate for camera pitch relative to default 18.0 deg
+        pitch = raw_pitch + float(np.radians(pitch_offset_deg - 18.0))
+
+        return {
+            "pitch": float(np.clip(pitch, -0.6, 0.6)),
+            "yaw": float(np.clip(yaw, -0.7, 0.7)),
+            "roll": float(np.clip(roll, -0.5, 0.5)),
+        }
+
+    # Fallback to Euler angles if geometric landmarks are not available
     euler = getattr(face, "euler", None)
     if euler is None or len(euler) < 3:
         return {"pitch": 0.0, "yaw": 0.0, "roll": 0.0}
 
-    # OpenSeeFace Euler angles: euler[0] = Pitch, euler[1] = Yaw, euler[2] = Roll (in degrees)
+    deg2rad = float(np.pi / 180.0)
     raw_pitch = float(euler[0])
     raw_yaw = float(euler[1])
     raw_roll = float(euler[2])
 
-    # Convert degrees to radians (Three.js skeletal rotations require radians, not degrees)
-    deg2rad = float(np.pi / 180.0)
     pitch = (raw_pitch + pitch_offset_deg) * deg2rad
     yaw = -raw_yaw * deg2rad
     roll = raw_roll * deg2rad
 
-    # Clamp rotation angles within realistic human cervical limits [-1.0, 1.0] rad (~ +-57 deg)
     return {
-        "pitch": float(np.clip(pitch, -1.0, 1.0)),
-        "yaw": float(np.clip(yaw, -1.0, 1.0)),
-        "roll": float(np.clip(roll, -1.0, 1.0)),
+        "pitch": float(np.clip(pitch, -0.6, 0.6)),
+        "yaw": float(np.clip(yaw, -0.7, 0.7)),
+        "roll": float(np.clip(roll, -0.5, 0.5)),
     }
 
 

@@ -115,9 +115,11 @@ class TestDebugMode(unittest.TestCase):
                 "blink_l": 0.0,
                 "blink_r": 0.0,
                 "surprised": 0.0,
+                "angry": 0.0,
                 "sorrow": 0.0,
             },
         }
+        self.assertTrue(hasattr(win, "bar_angry"))
         # Update view should execute cleanly without error
         win.update_debug_view(test_frame, telemetry)
         win.close()

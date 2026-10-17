@@ -759,14 +759,15 @@ def draw_openseeface_debug(
     brow_base = float(telem.get("brow_baseline", getattr(face, "brow_baseline", 0.0) if face else 0.0))
     brow_delta = float(telem.get("brow_delta", getattr(face, "brow_delta", 0.0) if face else 0.0))
     surprised = float(vrm.get("surprised", 0.0))
+    angry = float(vrm.get("angry", 0.0))
     sorrow = float(vrm.get("sorrow", 0.0))
 
     line1 = f"Backend: OpenSeeFace ONNX | Head: Pitch:{pitch:+.1f}*  Yaw:{yaw:+.1f}*  Roll:{roll:+.1f}*"
-    line2 = f"SmileLift: {smile_lift:+.3f} -> JOY: {joy:.2f} | Brow: {brow_ratio:.2f} (Base:{brow_base:.2f} D:{brow_delta:+.2f}) -> SURP: {surprised:.2f}"
+    line2 = f"SmileLift: {smile_lift:+.3f} -> JOY: {joy:.2f} | Brow: {brow_ratio:.2f} (Base:{brow_base:.2f} D:{brow_delta:+.2f}) -> SURP: {surprised:.2f} ANGRY: {angry:.2f}"
     line3 = f"Mouth: A={mouth_a:.2f} U={mouth_u:.2f} O={mouth_o:.2f} | Sorrow: {sorrow:.2f} | Blink: L={blink_l:.2f} R={blink_r:.2f} | Gaze: X={telem.get('gaze', {}).get('x', 0.0):+.2f} Y={telem.get('gaze', {}).get('y', 0.0):+.2f}"
 
     cv2.putText(canvas, line1, (12, h - 68), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
-    info_col = (0, 165, 255) if surprised > 0.05 else ((0, 100, 255) if joy > 0.05 else (0, 255, 128))
+    info_col = (0, 0, 255) if angry > 0.05 else ((0, 165, 255) if surprised > 0.05 else ((0, 100, 255) if joy > 0.05 else (0, 255, 128)))
     cv2.putText(canvas, line2, (12, h - 42), cv2.FONT_HERSHEY_SIMPLEX, 0.45, info_col, 1, cv2.LINE_AA)
     cv2.putText(canvas, line3, (12, h - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 220, 255), 1, cv2.LINE_AA)
 

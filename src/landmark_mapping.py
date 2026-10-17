@@ -935,13 +935,17 @@ def draw_mediapipe_debug(
     blink_l = float(vrm.get("blink_l", 0.0))
     blink_r = float(vrm.get("blink_r", 0.0))
 
+    surprised = float(vrm.get("surprised", 0.0))
+    angry = float(vrm.get("angry", 0.0))
+    sorrow = float(vrm.get("sorrow", 0.0))
+
     line1 = f"Backend: Google MediaPipe | Head: Pitch:{pitch:+.1f}*  Yaw:{yaw:+.1f}*  Roll:{roll:+.1f}*"
-    line2 = f"JOY: {joy:.2f} | Surprised: {vrm.get('surprised', 0.0):.2f} | Sorrow: {vrm.get('sorrow', 0.0):.2f}"
+    line2 = f"JOY: {joy:.2f} | Surprised: {surprised:.2f} | Angry: {angry:.2f} | Sorrow: {sorrow:.2f}"
     line3 = f"Mouth: A={mouth_a:.2f} | Blink: L={blink_l:.2f} R={blink_r:.2f} | Gaze: X={telem.get('gaze', {}).get('x', 0.0):+.2f} Y={telem.get('gaze', {}).get('y', 0.0):+.2f}"
 
     cv2.putText(canvas, line1, (12, h - 68), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
-    joy_col = (0, 100, 255) if joy > 0.05 else (0, 255, 128)
-    cv2.putText(canvas, line2, (12, h - 42), cv2.FONT_HERSHEY_SIMPLEX, 0.45, joy_col, 1, cv2.LINE_AA)
+    info_col = (0, 0, 255) if angry > 0.05 else ((0, 165, 255) if surprised > 0.05 else ((0, 100, 255) if joy > 0.05 else (0, 255, 128)))
+    cv2.putText(canvas, line2, (12, h - 42), cv2.FONT_HERSHEY_SIMPLEX, 0.45, info_col, 1, cv2.LINE_AA)
     cv2.putText(canvas, line3, (12, h - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 220, 255), 1, cv2.LINE_AA)
 
     return canvas

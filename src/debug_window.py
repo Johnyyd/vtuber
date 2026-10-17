@@ -209,6 +209,7 @@ class TrackingDebugWindow(QWidget):
         self.bar_o = TelemetryBar("Vowel O", 0.0, 1.0)
         self.bar_brow_ratio = TelemetryBar("Brow Ratio (Raw)", 0.25, 0.75)
         self.bar_surprised = TelemetryBar("Surprised", 0.0, 1.0)
+        self.bar_angry = TelemetryBar("Angry (Gian Du)", 0.0, 1.0)
         self.bar_sorrow = TelemetryBar("Sorrow", 0.0, 1.0)
 
         lay_mouth.addWidget(self.bar_smile_lift)
@@ -220,6 +221,7 @@ class TrackingDebugWindow(QWidget):
         lay_mouth.addWidget(self.bar_o)
         lay_mouth.addWidget(self.bar_brow_ratio)
         lay_mouth.addWidget(self.bar_surprised)
+        lay_mouth.addWidget(self.bar_angry)
         lay_mouth.addWidget(self.bar_sorrow)
         scroll_layout.addWidget(grp_mouth)
 
@@ -282,6 +284,7 @@ class TrackingDebugWindow(QWidget):
         self.bar_brow_ratio.set_value(brow_ratio, active_color="#f97316" if brow_delta > 0.02 else "#10b981", alert_threshold=0.55)
 
         self.bar_surprised.set_value(float(vrm.get("surprised", 0.0)), active_color="#f97316", alert_threshold=0.05)
+        self.bar_angry.set_value(float(vrm.get("angry", 0.0)), active_color="#dc2626", alert_threshold=0.05)
         self.bar_sorrow.set_value(float(vrm.get("sorrow", 0.0)), active_color="#6366f1")
 
     def keyPressEvent(self, event):

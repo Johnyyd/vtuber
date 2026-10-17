@@ -877,10 +877,10 @@
       }
     }
 
-    // Only strong deliberate emotions (maxEmotionVal >= 0.60) override mouth visemes.
     // When user is speaking (any vowel > 0.05), speech vowels drive the mouth in real time!
+    // When not speaking (!isSpeaking), deliberate emotions (maxEmotionVal >= 0.50) shape the mouth.
     const isSpeaking = vowelKeys.some(k => (targetMotion.vrm[k] || 0) > 0.05);
-    const shouldOverrideVowels = hasActiveEmotion && (maxEmotionVal >= 0.60 || !isSpeaking);
+    const shouldOverrideVowels = hasActiveEmotion && !isSpeaking && (maxEmotionVal >= 0.50);
 
     if (shouldOverrideVowels) {
       for (const k of vowelKeys) {
@@ -951,9 +951,16 @@
           if (vrm0Key === "U") {
             vrm0Val = Math.min(0.60, vrm0Val);
           }
-          // When mouth is opening for speech (a > 0.05), attenuate Joy and Surprised so their mouth shapes don't lock or fight with A
-          if ((vrm0Key === "Joy" || vrm0Key === "Surprised") && currentMotion.vrm.a > 0.05) {
-            const speechAtten = Math.max(0.0, 1.0 - currentMotion.vrm.a * 1.8);
+          // When mouth is opening for speech (any vowel > 0.05), attenuate Joy and Surprised so their mouth shapes don't lock or fight with speech
+          const speechVowelMax = Math.max(
+            currentMotion.vrm.a || 0,
+            currentMotion.vrm.e || 0,
+            currentMotion.vrm.i || 0,
+            currentMotion.vrm.o || 0,
+            currentMotion.vrm.u || 0
+          );
+          if ((vrm0Key === "Joy" || vrm0Key === "Surprised") && speechVowelMax > 0.05) {
+            const speechAtten = Math.max(0.0, 1.0 - speechVowelMax * 1.8);
             vrm0Val *= speechAtten;
           }
 

@@ -164,6 +164,7 @@ def map_openseeface_to_vrm(
             setattr(face, "_mouth_width_baseline", float(width_baseline))
         width_delta = float(w_ratio - width_baseline)
 
+    wide_active = 0.0
     if mouth_open_raw < mouth_open_deadzone:
         # Resting mouth stability: neutral expression, no random vowels
         v_a = 0.0
@@ -238,28 +239,38 @@ def map_openseeface_to_vrm(
     if lms is not None and len(lms) >= 66 and float(lms[30, 0]) > 10.0 and float(lms[51, 0]) > 10.0:
         nose_h = max(1.0, float(lms[30, 0] - lms[27, 0]))
         corner_y = float(lms[48, 0] + lms[54, 0]) * 0.5
-        center_y = float(lms[51, 0] + lms[57, 0]) * 0.5
-        smile_lift = (center_y - corner_y) / nose_h
+        # Anchor to rigid upper lip 51 (attached to maxilla) so opening jaw/mouth never creates false smile lift
+        upper_lip_y = float(lms[51, 0])
+        smile_lift = (upper_lip_y - corner_y) / nose_h
         setattr(face, "smile_lift", float(smile_lift))
 
         # Adaptive baseline for smile corners to handle individual resting mouth shapes:
         smile_base = getattr(tracker_instance, "smile_baseline", None) if tracker_instance else getattr(face, "_smile_baseline", None)
+        prev_s_delta = getattr(tracker_instance, "_prev_smile_delta", 0.0) if tracker_instance else getattr(face, "_prev_smile_delta", 0.0)
+        smile_dz = max(0.060, smile_deadzone * 0.70)
+
         if smile_base is None:
             smile_base = float(smile_lift)
         else:
             s_delta = float(smile_lift - smile_base)
-            s_adapt = 0.003 if s_delta > 0.02 else 0.025
+            # If not in deliberate smile (<= smile_dz), or if mouth corners are releasing downward, adapt fast to rest:
+            if s_delta <= smile_dz or s_delta < (prev_s_delta - 0.003):
+                s_adapt = 0.04
+            else:
+                s_adapt = 0.002
             smile_base = smile_base * (1.0 - s_adapt) + smile_lift * s_adapt
 
         if tracker_instance is not None:
             tracker_instance.smile_baseline = float(smile_base)
+            tracker_instance._prev_smile_delta = float(smile_lift - smile_base)
         if hasattr(face, "__dict__"):
             setattr(face, "_smile_baseline", float(smile_base))
+            setattr(face, "_prev_smile_delta", float(smile_lift - smile_base))
 
         smile_delta = float(smile_lift - smile_base)
 
-        if smile_delta > 0.020:
-            joy = _clamp((smile_delta - 0.020) / 0.040 * (smile_gain / 2.0))
+        if smile_delta > smile_dz:
+            joy = _clamp((smile_delta - smile_dz) / 0.11 * (smile_gain / 2.0))
         else:
             joy = 0.0
 
@@ -379,19 +390,37 @@ def map_openseeface_to_vrm(
     else:
         angry = 0.0
 
-    # Mutual exclusivity cancellations:
-    if surprised > 0.05:
-        sorrow = 0.0
-        angry = 0.0
-    if joy > 0.10:
-        sorrow = 0.0
-        angry = 0.0
-        surprised = 0.0
+    # Mutual exclusivity and speech distinction:
+    # If articulating horizontal speech stretch (E/I) without genuine smile, Joy is suppressed
+    horiz_stretch_only = max(0.0, wide_active - joy * 1.2)
+    if horiz_stretch_only > 0.10 and joy < 0.50:
+        joy = 0.0
+    elif open_val > 0.18 and joy < 0.45:
+        joy = 0.0
 
-    fun = _clamp(joy * 0.85)
+    # Winner-Takes-All Emotion Arbitration:
+    # Fairly select the single dominant emotion (>= 0.18 threshold).
+    # Ensures Joy releases cleanly and never locks out Surprised, Angry, or Sorrow.
+    raw_emotions = {
+        "joy": joy,
+        "surprised": surprised,
+        "sorrow": sorrow,
+        "angry": angry,
+    }
+    dominant_emo = max(raw_emotions, key=raw_emotions.get)
+    max_emo_val = raw_emotions[dominant_emo]
+
+    has_active_emotion = max_emo_val >= 0.18
+
+    final_joy = max_emo_val if (dominant_emo == "joy" and has_active_emotion) else 0.0
+    final_surprised = max_emo_val if (dominant_emo == "surprised" and has_active_emotion) else 0.0
+    final_sorrow = max_emo_val if (dominant_emo == "sorrow" and has_active_emotion) else 0.0
+    final_angry = max_emo_val if (dominant_emo == "angry" and has_active_emotion) else 0.0
+
+    fun = _clamp(final_joy * 0.85)
 
     # Neutral weight decreases when active expressions or mouth opening engage
-    active_sum = vrm_blink + v_a + v_i + v_u + v_e + v_o + joy + sorrow + surprised
+    active_sum = vrm_blink + v_a + v_i + v_u + v_e + v_o + final_joy + final_sorrow + final_surprised + final_angry
     neutral = _clamp(1.0 - active_sum * 0.5)
 
     return {
@@ -404,11 +433,11 @@ def map_openseeface_to_vrm(
         "blink": vrm_blink,
         "blink_l": vrm_blink_l,
         "blink_r": vrm_blink_r,
-        "joy": joy,
-        "angry": angry,
-        "sorrow": sorrow,
+        "joy": final_joy,
+        "angry": final_angry,
+        "sorrow": final_sorrow,
         "fun": fun,
-        "surprised": surprised,
+        "surprised": final_surprised,
         "lookup": 0.0,
         "lookdown": 0.0,
         "lookleft": 0.0,
@@ -815,9 +844,10 @@ class OpenSeeFaceTracker:
         """Reset all adaptive baselines to neutral calibration state."""
         self.brow_baseline = None
         self.smile_baseline = None
+        self._prev_smile_delta = 0.0
         self.mouth_width_baseline = None
         self.pitch_ratio_baseline = None
-        attrs = ["_pitch_baseline", "_brow_baseline", "_smile_baseline", "_mouth_width_baseline"]
+        attrs = ["_pitch_baseline", "_brow_baseline", "_smile_baseline", "_mouth_width_baseline", "_prev_smile_delta"]
         if self.last_face is not None:
             for attr in attrs:
                 if hasattr(self.last_face, attr):

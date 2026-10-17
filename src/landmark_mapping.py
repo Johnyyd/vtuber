@@ -411,6 +411,7 @@ def map_mediapipe_to_vrm(
     mp_blendshapes: Dict[str, float],
     landmarks: Optional[Dict[str, Tuple[float, float, float]]] = None,
     pitch: float = 0.0,
+    yaw: float = 0.0,
     config: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, float]:
     """
@@ -439,25 +440,63 @@ def map_mediapipe_to_vrm(
 
     vrm = {name: 0.0 for name in VRM_BLENDSHAPES}
 
-    # 1. Mouth / Visemes - High sensitivity speech tracking with head-tilt protection
+    tilt_down = max(0.0, pitch)
+    tilt_up = max(0.0, -pitch)
+
+    # 1. Facial Boundary & Occlusion Detection:
+    # When parts of the face are occluded or go off-frame, suppress affected expressions
+    mouth_occluded = False
+    eyes_occluded = False
+    brows_occluded = False
+
+    if landmarks:
+        # Mouth & chin boundary
+        mouth_pts = ["lm14", "lm152", "lm61", "lm291"]
+        for pt in mouth_pts:
+            if pt in landmarks:
+                x, y, _ = landmarks[pt]
+                if y <= 0.02 or y >= 0.96 or x <= 0.02 or x >= 0.98:
+                    mouth_occluded = True
+                    break
+        if not mouth_occluded and "lm61" in landmarks and "lm291" in landmarks:
+            w_mouth = np.linalg.norm(np.array(landmarks["lm61"][:2]) - np.array(landmarks["lm291"][:2]))
+            if w_mouth < 0.015:
+                mouth_occluded = True
+
+        # Eyes boundary & occlusion
+        eye_pts = ["lm33", "lm133", "lm159", "lm145", "lm263", "lm362", "lm386", "lm374"]
+        for pt in eye_pts:
+            if pt in landmarks:
+                x, y, _ = landmarks[pt]
+                if y <= 0.03 or y >= 0.97 or x <= 0.02 or x >= 0.98:
+                    eyes_occluded = True
+                    break
+        if not eyes_occluded and "lm33" in landmarks and "lm133" in landmarks:
+            w_eye_l = np.linalg.norm(np.array(landmarks["lm33"][:2]) - np.array(landmarks["lm133"][:2]))
+            if w_eye_l < 0.012:
+                eyes_occluded = True
+        if not eyes_occluded and "lm263" in landmarks and "lm362" in landmarks:
+            w_eye_r = np.linalg.norm(np.array(landmarks["lm263"][:2]) - np.array(landmarks["lm362"][:2]))
+            if w_eye_r < 0.012:
+                eyes_occluded = True
+
+        # Forehead / Eyebrow boundary
+        brow_pts = ["lm10", "lm109", "lm338"]
+        for pt in brow_pts:
+            if pt in landmarks:
+                x, y, _ = landmarks[pt]
+                if y <= 0.02 or y >= 0.97 or x <= 0.02 or x >= 0.98:
+                    brows_occluded = True
+                    break
+
+    # Mouth / Visemes - High sensitivity speech tracking with head-tilt protection
     jaw = g("jawOpen")
     mouth_close = g("mouthClose")
     
     # If the user is looking down (pitch > 0), the 2D tracking distances compress 
     # and artificially inflate jawOpen and MAR. Apply a proportional penalty.
-    tilt_penalty = max(0.0, pitch * 0.15) if pitch > 0 else 0.0
+    tilt_penalty = max(0.0, (tilt_down - 0.04) * 0.25) if tilt_down > 0.04 else 0.0
     jaw = max(0.0, jaw - tilt_penalty)
-
-    # Check if mouth is occluded or out-of-frame
-    mouth_occluded = False
-    if landmarks:
-        if "lm14" in landmarks and "lm152" in landmarks:
-            if landmarks["lm14"][1] > 0.96 or landmarks["lm152"][1] > 0.98:
-                mouth_occluded = True
-        if "lm61" in landmarks and "lm291" in landmarks:
-            w_mouth = np.linalg.norm(np.array(landmarks["lm61"][:2]) - np.array(landmarks["lm291"][:2]))
-            if w_mouth < 0.015:
-                mouth_occluded = True
 
     if jaw > mouth_dz:
         jaw_active = _clamp((jaw - mouth_dz) / max(0.04, 0.18 - mouth_dz))
@@ -515,20 +554,21 @@ def map_mediapipe_to_vrm(
     # Puckering physically contracts mouth corners horizontally (mouth_ratio < 0.32).
     # When resting, lips are flat/uncontracted (mouth_ratio >= 0.32); when puckered, ratio contracts.
     # Note: If mouth is primarily funneled open (funnel > pucker and funnel > 0.20), it is vowel O, not U.
+    # Vowel U requires real physical puckering (mouthPucker > 0.08) and is suppressed when looking down (tilt_down > 0.10)
     is_primarily_funnel = (funnel > 0.20 and funnel >= pucker) or (pucker > 0.15 and raw_speech > 0.22 and funnel > 0.10)
-    if mouth_occluded or is_primarily_funnel:
+    if mouth_occluded or is_primarily_funnel or pucker <= 0.08 or tilt_down > 0.10:
         u_val = 0.0
     elif landmarks and "lm61" in landmarks and "lm291" in landmarks and "lm234" in landmarks and "lm454" in landmarks:
         if mouth_ratio < 0.32 and smile < 0.18 and raw_speech < 0.55:
             ratio_act = _clamp((0.32 - mouth_ratio) / 0.07)
-            pucker_act = _clamp((pucker - 0.08) * 2.8) if pucker > 0.08 else 0.0
-            u_cand = max(ratio_act, pucker_act) * 0.7 + min(ratio_act, pucker_act) * 0.5
+            pucker_act = _clamp((pucker - 0.08) * 2.8)
+            u_cand = pucker_act * 0.7 + min(ratio_act, pucker_act) * 0.5
             u_val = min(u_max, u_cand * 1.3)
         else:
             u_val = 0.0
     else:
         # Fallback without landmarks (unit tests / synthetic calls)
-        if raw_speech < 0.55 and smile < 0.18:
+        if raw_speech < 0.55 and smile < 0.18 and pucker > 0.08 and tilt_down <= 0.10:
             u_val = min(u_max, _dz(pucker, 0.06) * 3.5)
         else:
             u_val = 0.0
@@ -655,13 +695,28 @@ def map_mediapipe_to_vrm(
     raw_l = g("eyeBlinkLeft")
     raw_r = g("eyeBlinkRight")
 
+    # Perspective compensation for head tilt (Pitch UP & Pitch DOWN):
+    # 1. Pitch UP (looking up): eyes are foreshortened from below -> deduct tilt_up penalty
+    if tilt_up > 0.04:
+        tilt_up_blink_penalty = (tilt_up - 0.04) * 1.8
+        raw_l = max(0.0, raw_l - tilt_up_blink_penalty)
+        raw_r = max(0.0, raw_r - tilt_up_blink_penalty)
+
+    # 2. Pitch DOWN (looking down): upper eyelids & glasses droop over pupils -> deduct tilt_down penalty
+    if tilt_down > 0.05:
+        tilt_down_blink_penalty = (tilt_down - 0.05) * 1.2
+        raw_l = max(0.0, raw_l - tilt_down_blink_penalty)
+        raw_r = max(0.0, raw_r - tilt_down_blink_penalty)
+
     bl_l = _calibrate_blink(raw_l, deadzone=blink_dz, snap_thresh=blink_snap)
     bl_r = _calibrate_blink(raw_r, deadzone=blink_dz, snap_thresh=blink_snap)
 
     if landmarks:
         ear_l, ear_r = compute_ear(landmarks)
-        ear_bl_l = ear_to_blink(ear_l)
-        ear_bl_r = ear_to_blink(ear_r)
+        # When tilted up or down, EAR baseline decreases naturally; adjust threshold
+        ear_thresh_offset = (tilt_up * 0.04 + tilt_down * 0.03)
+        ear_bl_l = ear_to_blink(ear_l + ear_thresh_offset)
+        ear_bl_r = ear_to_blink(ear_r + ear_thresh_offset)
 
         # Biomechanical fusion:
         # 1. Physical eyelid contact -> snap closure
@@ -676,16 +731,30 @@ def map_mediapipe_to_vrm(
         elif ear_bl_r == 0.0 and raw_r < 0.30:
             bl_r = 0.0
 
+    # If eyes are occluded or near boundary, do NOT close eyes
+    if eyes_occluded:
+        bl_l = 0.0
+        bl_r = 0.0
+
     # Distinguish natural synchronized blink vs deliberate single-eye wink:
     diff_l = bl_l - bl_r
     diff_r = bl_r - bl_l
 
-    # A single-eye wink requires:
-    # 1. The winking eye is distinctly closed (bl >= 0.35)
-    # 2. The other eye is resting/open (bl_other < 0.25)
-    # 3. The difference between eyes is distinct (diff >= 0.20)
-    is_wink_l = bl_l >= 0.35 and bl_r < 0.25 and diff_l >= 0.20
-    is_wink_r = bl_r >= 0.35 and bl_l < 0.25 and diff_r >= 0.20
+    # Extreme head pose protection for single-eye winks:
+    # When head is tilted down (pitch > 0.08), up (pitch < -0.10), or turned sideways (|yaw| > 0.28),
+    # false wink asymmetry is rampant due to glasses & perspective. Require stricter thresholds.
+    is_extreme_pose = (tilt_down > 0.08 or tilt_up > 0.10 or abs(yaw) > 0.28)
+    wink_diff_req = 0.35 if is_extreme_pose else 0.20
+    wink_bl_req = 0.48 if is_extreme_pose else 0.35
+
+    is_wink_l = not eyes_occluded and bl_l >= wink_bl_req and bl_r < 0.22 and diff_l >= wink_diff_req
+    is_wink_r = not eyes_occluded and bl_r >= wink_bl_req and bl_l < 0.22 and diff_r >= wink_diff_req
+
+    # If tilted down or up significantly (looking down at desk or up at ceiling),
+    # or turned far sideways, do not trigger single wink (asymmetry is caused by head orientation, shadow and glasses)
+    if tilt_down > 0.08 or tilt_up > 0.12 or abs(yaw) > 0.35:
+        is_wink_l = False
+        is_wink_r = False
 
     if is_wink_l:
         # Deliberate left eye wink -> full 1.0 closure
@@ -697,7 +766,7 @@ def map_mediapipe_to_vrm(
         vrm["blink"] = 0.0
         vrm["blink_l"] = 0.0
         vrm["blink_r"] = 1.0
-    elif (bl_l + bl_r) * 0.5 >= 0.42 and min(bl_l, bl_r) >= 0.22:
+    elif (bl_l + bl_r) * 0.5 >= (0.52 if tilt_up > 0.08 else 0.42) and min(bl_l, bl_r) >= 0.22:
         # Natural synchronized blink of both eyes - smooth closure curve
         blink_mag = (bl_l + bl_r) * 0.5
         # Smoothstep from 0.40 to 0.70 for natural eyelid closure
@@ -715,7 +784,7 @@ def map_mediapipe_to_vrm(
     peak_smile = max(g("mouthSmileLeft"), g("mouthSmileRight"))
     effective_smile = peak_smile * 0.6 + smile * 0.4
 
-    if effective_smile > smile_dz:
+    if not mouth_occluded and effective_smile > smile_dz:
         raw_joy = _clamp((effective_smile - smile_dz) * smile_gain)
     else:
         raw_joy = 0.0
@@ -729,7 +798,7 @@ def map_mediapipe_to_vrm(
     elif stretch > 0.06 and stretch >= (smile - 0.12):
         raw_joy = 0.0
 
-    raw_angry = _clamp((g("browDownLeft") + g("browDownRight")) * 1.5)
+    raw_angry = 0.0 if (brows_occluded or tilt_down > 0.25) else _clamp((g("browDownLeft") + g("browDownRight")) * 1.5)
 
     # Eyebrow raising & eye widening -> Surprised (not sorrow)
     # Surprised requires deliberate eyebrow raising above brow_dz
@@ -740,18 +809,22 @@ def map_mediapipe_to_vrm(
     eye_wide = (g("eyeWideLeft") + g("eyeWideRight")) * 0.5
     frown = (g("mouthFrownLeft") + g("mouthFrownRight")) * 0.5
 
-    # Surprise detection:
-    # Naturally occurs with raised eyebrows PLUS either:
-    # 1. Eyes widened (eye_wide >= 0.04)
-    # 2. Mouth gasped/opened (raw_speech >= 0.06 or jaw_active >= 0.06)
-    # 3. Deliberate eyebrow raising (brow_raise >= brow_dz + 0.10)
-    # NOTE: When smiling, the cheeks naturally bunch upward, pulling eyebrows up slightly.
-    # If the user is actively smiling (effective_smile > 0.15) and NOT widening eyes (eye_wide < 0.04),
-    # this is a smile, NOT surprise!
+    # Surprise detection with Head Tilt Protections:
+    # 1. Looking down (cúi mặt xuống): Forehead is foreshortened closer to camera, artificially inflating brow_raise.
+    #    When tilt_down > 0.08 (~4.5 deg), SURPRISE IS TOTALLY SUPPRESSED!
+    # 2. Brows occluded (trán/lông mày bị che hoặc tràn khung hình): No surprise!
+    # 3. Smiling: cheeks push eyebrows up -> No surprise!
+    is_pitch_down_surprised = (tilt_down > 0.08)
+    pitch_down_brow_penalty = (tilt_down - 0.03) * 2.8 if tilt_down > 0.03 else 0.0
+    effective_brow_raise = max(0.0, brow_raise - pitch_down_brow_penalty)
+
     is_smiling_not_surprised = (effective_smile > 0.15 and eye_wide < 0.04)
-    is_surprised_marker = (eye_wide >= 0.04 or raw_speech >= 0.06 or brow_raise >= (brow_dz + 0.10))
-    if not mouth_occluded and brow_raise > brow_dz and frown < 0.15 and is_surprised_marker and not is_smiling_not_surprised:
-        brow_act = (brow_raise - brow_dz) * brow_gain
+    is_surprised_marker = (eye_wide >= 0.04 or raw_speech >= 0.06 or effective_brow_raise >= (brow_dz + 0.10))
+
+    if (not mouth_occluded and not brows_occluded and not is_pitch_down_surprised
+        and effective_brow_raise > brow_dz and frown < 0.15 
+        and is_surprised_marker and not is_smiling_not_surprised):
+        brow_act = (effective_brow_raise - brow_dz) * brow_gain
         eye_wide_boost = max(0.0, eye_wide - 0.03) * 2.5
         raw_surprised = _clamp(brow_act + eye_wide_boost)
     else:

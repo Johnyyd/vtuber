@@ -389,6 +389,7 @@ class TrackingWorker(QThread):
                         mp_blendshapes,
                         landmarks=landmarks,
                         pitch=raw_rotation["pitch"],
+                        yaw=raw_rotation["yaw"],
                         config=self.config,
                     )
                     vrc = map_mediapipe_to_vrc(mp_blendshapes)

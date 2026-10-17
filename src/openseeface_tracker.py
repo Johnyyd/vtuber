@@ -7,6 +7,7 @@ using the specialized MobileNetV3 ONNX models from OpenSeeFace.
 
 import os
 import sys
+import time
 import urllib.request
 from typing import Dict, Tuple, Optional, Any
 import numpy as np
@@ -16,6 +17,11 @@ try:
     from .openseeface.tracker import Tracker
 except ImportError:
     from openseeface.tracker import Tracker
+
+try:
+    from .landmark_mapping import OneEuroFilter
+except ImportError:
+    from landmark_mapping import OneEuroFilter
 
 MODEL_FILES = {
     "mnv3_detection_opt.onnx": "https://raw.githubusercontent.com/emilianavt/OpenSeeFace/master/models/mnv3_detection_opt.onnx",
@@ -39,6 +45,20 @@ def _clamp(val: float, min_val: float = 0.0, max_val: float = 1.0) -> float:
     return max(min_val, min(max_val, float(val)))
 
 
+def _smoothstep(edge0: float, edge1: float, x: float) -> float:
+    """
+    Cubic Hermite Smoothstep S-curve mapping to [0.0, 1.0].
+    Provides C1 smooth continuity with zero first derivatives at endpoints,
+    eliminating sharp threshold elbows, boundary popping, and sensor micro-flicker.
+    """
+    if x <= edge0:
+        return 0.0
+    if x >= edge1:
+        return 1.0
+    t = (x - edge0) / (edge1 - edge0)
+    return float(t * t * (3.0 - 2.0 * t))
+
+
 def ensure_openseeface_models_downloaded(model_dir: Optional[str] = None) -> str:
     """Download OpenSeeFace ONNX model files if not already present."""
     target_dir = model_dir or DEFAULT_MODEL_DIR
@@ -60,6 +80,7 @@ def map_openseeface_to_vrm(
     face: Any,
     config: Optional[dict] = None,
     tracker_instance: Optional[Any] = None,
+    timestamp: Optional[float] = None,
 ) -> Dict[str, float]:
     """
     Map OpenSeeFace facial features and landmarks to standard VRM 0.x blendshapes.
@@ -67,6 +88,7 @@ def map_openseeface_to_vrm(
     """
     cfg = config or {}
     features = getattr(face, "current_features", {}) or {}
+    now_t = float(timestamp) if timestamp is not None else time.time()
 
     mouth_open_deadzone = float(cfg.get("mouth_open_deadzone", 0.06))
     mouth_open_gain = float(cfg.get("mouth_open_gain", 1.8))
@@ -133,6 +155,9 @@ def map_openseeface_to_vrm(
     # Mouth & Speech Vowels
     mouth_open_raw = float(features.get("mouth_open", 0.0))
     mouth_wide_raw = float(features.get("mouth_wide", 0.0))
+    if tracker_instance is not None and hasattr(tracker_instance, "filter_mouth_open"):
+        mouth_open_raw = tracker_instance.filter_mouth_open.filter(mouth_open_raw, now_t)
+        mouth_wide_raw = tracker_instance.filter_mouth_wide.filter(mouth_wide_raw, now_t)
 
     iod = float(np.linalg.norm(lms[36, :2] - lms[45, :2])) if (lms is not None and len(lms) >= 46) else 0.0
 
@@ -241,7 +266,11 @@ def map_openseeface_to_vrm(
         corner_y = float(lms[48, 0] + lms[54, 0]) * 0.5
         # Anchor to rigid upper lip 51 (attached to maxilla) so opening jaw/mouth never creates false smile lift
         upper_lip_y = float(lms[51, 0])
-        smile_lift = (upper_lip_y - corner_y) / nose_h
+        smile_lift_raw = (upper_lip_y - corner_y) / nose_h
+        if tracker_instance is not None and hasattr(tracker_instance, "filter_smile"):
+            smile_lift = tracker_instance.filter_smile.filter(smile_lift_raw, now_t)
+        else:
+            smile_lift = smile_lift_raw
         setattr(face, "smile_lift", float(smile_lift))
 
         # Adaptive baseline for smile corners to handle individual resting mouth shapes:
@@ -269,15 +298,16 @@ def map_openseeface_to_vrm(
 
         smile_delta = float(smile_lift - smile_base)
 
+        # Hermite Smoothstep S-curve mapping: zero initial derivative eliminates threshold pop-in and micro-flicker
         if smile_delta > smile_dz:
-            joy = _clamp((smile_delta - smile_dz) / 0.11 * (smile_gain / 2.0))
+            joy = _clamp(_smoothstep(smile_dz, smile_dz + 0.11, smile_delta) * (smile_gain / 2.0))
         else:
             joy = 0.0
 
         # Mouth frown: droop below resting baseline (attenuated when speaking with open jaw)
         frown_delta = max(0.0, -smile_delta)
         if frown_delta > 0.025:
-            frown_val = _clamp((frown_delta - 0.025) / 0.035)
+            frown_val = _clamp(_smoothstep(0.025, 0.060, frown_delta))
             if open_val > 0.12:
                 frown_val = _clamp(frown_val * max(0.0, 1.0 - (open_val - 0.12) * 5.0))
         else:
@@ -315,7 +345,11 @@ def map_openseeface_to_vrm(
         else:
             pitch_penalty = 0.0
 
-        brow_ratio = max(0.0, (avg_brow_dist / max(1.0, ref_scale)) - pitch_penalty)
+        brow_ratio_raw = max(0.0, (avg_brow_dist / max(1.0, ref_scale)) - pitch_penalty)
+        if tracker_instance is not None and hasattr(tracker_instance, "filter_brow"):
+            brow_ratio = tracker_instance.filter_brow.filter(brow_ratio_raw, now_t)
+        else:
+            brow_ratio = brow_ratio_raw
 
         # Retrieve prior baseline from tracker instance or face cache
         baseline = None
@@ -348,14 +382,14 @@ def map_openseeface_to_vrm(
         # Dynamic threshold based on user sensitivity config:
         # CRITICAL: If eyes are closing/blinking, Surprised MUST be 0.0!
         if delta > thresh and not is_closing_eyes:
-            surprised_geo = _clamp((delta - thresh) / 0.045 * (brow_raise_gain / 2.0))
+            surprised_geo = _clamp(_smoothstep(thresh, thresh + 0.050, delta) * (brow_raise_gain / 2.0))
         else:
             surprised_geo = 0.0
 
         # Eyebrow furrowing (Angry):
         furrow_thresh = 0.020
         if delta < -furrow_thresh:
-            brow_furrow = _clamp((-furrow_thresh - delta) / 0.030)
+            brow_furrow = _clamp(_smoothstep(furrow_thresh, furrow_thresh + 0.035, -delta))
         else:
             brow_furrow = 0.0
     else:
@@ -363,7 +397,7 @@ def map_openseeface_to_vrm(
         smile_r = float(features.get("mouth_corner_updown_r", 0.0))
         avg_smile = max(0.0, (smile_l + smile_r) / 2.0)
         setattr(face, "smile_lift", float(avg_smile))
-        joy = _clamp((avg_smile - smile_deadzone) * smile_gain) if avg_smile > smile_deadzone else 0.0
+        joy = _clamp(_smoothstep(smile_deadzone, smile_deadzone + 0.12, avg_smile) * smile_gain) if avg_smile > smile_deadzone else 0.0
         frown_val = max(0.0, -(smile_l + smile_r) / 2.0)
         surprised_geo = 0.0
         brow_furrow = 0.0
@@ -375,18 +409,18 @@ def map_openseeface_to_vrm(
         surprised = 0.0 if is_closing_eyes else surprised_geo
     else:
         brow_up_feat = (float(features.get("eyebrow_updown_l", 0.0)) + float(features.get("eyebrow_updown_r", 0.0))) / 2.0
-        surprised_feat = _clamp(max(0.0, brow_up_feat - brow_raise_deadzone) * brow_raise_gain) if (brow_up_feat > brow_raise_deadzone and not is_closing_eyes) else 0.0
+        surprised_feat = _clamp(_smoothstep(brow_raise_deadzone, brow_raise_deadzone + 0.10, brow_up_feat) * brow_raise_gain) if (brow_up_feat > brow_raise_deadzone and not is_closing_eyes) else 0.0
         surprised = surprised_feat
 
     # Sorrow: mouth droop below baseline
     if frown_val > frown_deadzone:
-        sorrow = _clamp((frown_val - frown_deadzone) * (frown_gain / 1.8))
+        sorrow = _clamp(_smoothstep(frown_deadzone, frown_deadzone + 0.08, frown_val) * (frown_gain / 1.8))
     else:
         sorrow = 0.0
 
     # Angry: deliberate brow furrowing
     if brow_furrow > 0.04:
-        angry = _clamp(brow_furrow * 2.2 + frown_val * 0.4)
+        angry = _clamp(_smoothstep(0.04, 0.12, brow_furrow) * 2.2 + frown_val * 0.4)
     else:
         angry = 0.0
 
@@ -398,9 +432,9 @@ def map_openseeface_to_vrm(
     elif open_val > 0.18 and joy < 0.45:
         joy = 0.0
 
-    # Winner-Takes-All Emotion Arbitration:
-    # Fairly select the single dominant emotion (>= 0.18 threshold).
-    # Ensures Joy releases cleanly and never locks out Surprised, Angry, or Sorrow.
+    # Winner-Takes-All Emotion Arbitration with Schmitt Trigger (Hysteresis):
+    # - Attack threshold (0.20): requires deliberate expression to engage, rejecting sensor noise.
+    # - Release threshold (0.14): once engaged, smoothly sustains down to 0.14 to eliminate boundary flickering.
     raw_emotions = {
         "joy": joy,
         "surprised": surprised,
@@ -410,7 +444,17 @@ def map_openseeface_to_vrm(
     dominant_emo = max(raw_emotions, key=raw_emotions.get)
     max_emo_val = raw_emotions[dominant_emo]
 
-    has_active_emotion = max_emo_val >= 0.18
+    prev_active_emo = getattr(tracker_instance, "active_emotion", None) if tracker_instance else getattr(face, "_active_emotion", None)
+    if prev_active_emo == dominant_emo:
+        has_active_emotion = max_emo_val >= 0.14
+    else:
+        has_active_emotion = max_emo_val >= 0.20
+
+    current_active_emo = dominant_emo if has_active_emotion else None
+    if tracker_instance is not None:
+        tracker_instance.active_emotion = current_active_emo
+    if hasattr(face, "__dict__"):
+        setattr(face, "_active_emotion", current_active_emo)
 
     final_joy = max_emo_val if (dominant_emo == "joy" and has_active_emotion) else 0.0
     final_surprised = max_emo_val if (dominant_emo == "surprised" and has_active_emotion) else 0.0
@@ -822,6 +866,15 @@ class OpenSeeFaceTracker:
         self.smile_baseline = None
         self.mouth_width_baseline = None
         self.pitch_ratio_baseline = None
+        self.last_face = None
+        self.active_emotion = None
+
+        # OneEuroFilters for facial feature metrics:
+        # Eliminates webcam CMOS sensor micro-jitter at rest, 0ms lag during fast movement
+        self.filter_smile = OneEuroFilter(min_cutoff=0.9, beta=0.015)
+        self.filter_brow = OneEuroFilter(min_cutoff=0.8, beta=0.015)
+        self.filter_mouth_open = OneEuroFilter(min_cutoff=1.0, beta=0.02)
+        self.filter_mouth_wide = OneEuroFilter(min_cutoff=0.8, beta=0.015)
 
         # Initialize OpenSeeFace ONNX Tracker
         self.tracker = Tracker(
@@ -841,13 +894,18 @@ class OpenSeeFaceTracker:
         )
 
     def reset_baselines(self):
-        """Reset all adaptive baselines to neutral calibration state."""
+        """Reset all adaptive baselines and metric filters to neutral calibration state."""
         self.brow_baseline = None
         self.smile_baseline = None
         self._prev_smile_delta = 0.0
         self.mouth_width_baseline = None
         self.pitch_ratio_baseline = None
-        attrs = ["_pitch_baseline", "_brow_baseline", "_smile_baseline", "_mouth_width_baseline", "_prev_smile_delta"]
+        self.active_emotion = None
+        self.filter_smile.reset()
+        self.filter_brow.reset()
+        self.filter_mouth_open.reset()
+        self.filter_mouth_wide.reset()
+        attrs = ["_pitch_baseline", "_brow_baseline", "_smile_baseline", "_mouth_width_baseline", "_prev_smile_delta", "_active_emotion"]
         if self.last_face is not None:
             for attr in attrs:
                 if hasattr(self.last_face, attr):

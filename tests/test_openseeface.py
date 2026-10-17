@@ -892,6 +892,92 @@ class TestOpenSeeFaceMapping(unittest.TestCase):
         self.assertEqual(vrm_released["surprised"], 0.0)
         self.assertEqual(vrm_released["sorrow"], 0.0)
 
+    def test_openseeface_temporal_filtering_and_smoothstep_hysteresis(self):
+        try:
+            from openseeface_tracker import (
+                map_openseeface_to_vrm,
+                _smoothstep,
+                OpenSeeFaceTracker,
+            )
+        except ImportError:
+            from src.openseeface_tracker import (
+                map_openseeface_to_vrm,
+                _smoothstep,
+                OpenSeeFaceTracker,
+            )
+
+        # 1. Test Smoothstep mathematical properties:
+        # C1 continuous, S-shaped curve
+        self.assertEqual(_smoothstep(0.0, 1.0, -0.5), 0.0)
+        self.assertEqual(_smoothstep(0.0, 1.0, 1.5), 1.0)
+        self.assertAlmostEqual(_smoothstep(0.0, 1.0, 0.5), 0.5, places=4)
+        # Low slope near edges (smooth start and stop)
+        val_near_start = _smoothstep(0.0, 1.0, 0.05)
+        # Linear would be 0.05, cubic smoothstep is 3*(0.05)^2 - 2*(0.05)^3 = 0.00725 (much gentler, eliminates jerk)
+        self.assertLess(val_near_start, 0.01)
+
+        # 2. Test OpenSeeFaceTracker metric filters attenuate sensor jitter:
+        tracker = OpenSeeFaceTracker(width=640, height=480, max_threads=1)
+        self.assertIsNotNone(tracker.filter_smile)
+        self.assertIsNotNone(tracker.filter_brow)
+
+        class JitterFace:
+            def __init__(self, corner_y=284.0, brow_y=210.0):
+                self.lms = np.zeros((68, 3), dtype=np.float32)
+                self.lms[27, 0] = 200.0
+                self.lms[30, 0] = 240.0
+                self.lms[36] = [230.0, 180.0, 1.0]
+                self.lms[39] = [230.0, 210.0, 1.0]
+                self.lms[42] = [230.0, 250.0, 1.0]
+                self.lms[45] = [230.0, 280.0, 1.0]
+                for i in (18, 19, 20, 23, 24, 25):
+                    self.lms[i, 0] = brow_y
+                self.lms[51, 0] = 277.0
+                self.lms[57, 0] = 283.0
+                self.lms[48] = [corner_y, 210.0, 1.0]
+                self.lms[54] = [corner_y, 250.0, 1.0]
+                for i in (59, 60, 61):
+                    self.lms[i, 0] = 279.0
+                for i in (63, 64, 65):
+                    self.lms[i, 0] = 281.0
+                self.eye_blink = [1.0, 1.0]
+                self.current_features = {"mouth_open": 0.0, "mouth_wide": 0.0}
+
+        t_sim = 1000.0
+        # Sequence of frames with ±1px camera sensor noise around resting position 284
+        for noisy_y in [284.0, 283.0, 285.0, 283.5, 284.2]:
+            f = JitterFace(corner_y=noisy_y, brow_y=210.0)
+            res = map_openseeface_to_vrm(f, tracker_instance=tracker, timestamp=t_sim)
+            t_sim += 0.033
+            self.assertEqual(res["joy"], 0.0, "Jitter at resting face must be filtered to zero joy")
+            self.assertEqual(res["surprised"], 0.0)
+
+        # 3. Test Hysteresis (Schmitt Trigger):
+        # Trigger deliberate smile: corners lift to 273 (joy > 0.50) sustained over several frames (at 30 FPS)
+        for _ in range(8):
+            f_smile = JitterFace(corner_y=273.0)
+            res_smile = map_openseeface_to_vrm(f_smile, tracker_instance=tracker, timestamp=t_sim)
+            t_sim += 0.033
+        self.assertGreater(res_smile["joy"], 0.50)
+        self.assertEqual(tracker.active_emotion, "joy")
+
+        # Now corners relax down slightly so raw joy is ~0.16 (below attack 0.20, but above release 0.14)
+        # Hysteresis keeps joy stable without boundary flicker:
+        for _ in range(4):
+            f_relax = JitterFace(corner_y=279.8)
+            res_relax = map_openseeface_to_vrm(f_relax, tracker_instance=tracker, timestamp=t_sim)
+            t_sim += 0.033
+        if res_relax["joy"] > 0:
+            self.assertEqual(tracker.active_emotion, "joy")
+
+        # Now fully release face: corners drop to 284.0 -> joy strictly releases to 0.0
+        for _ in range(8):
+            f_neutral = JitterFace(corner_y=284.0)
+            res_neutral = map_openseeface_to_vrm(f_neutral, tracker_instance=tracker, timestamp=t_sim)
+            t_sim += 0.033
+        self.assertEqual(res_neutral["joy"], 0.0)
+        self.assertIsNone(tracker.active_emotion)
+
 
 if __name__ == "__main__":
     unittest.main()

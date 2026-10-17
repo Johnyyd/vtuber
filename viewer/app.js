@@ -89,11 +89,9 @@
   let frameCount = 0;
   let lastFpsTime = performance.now();
 
-  // Blink State Machine
-  let blinkState = "IDLE"; // IDLE, HOLD, COOLDOWN
-  let blinkTimer = 0;
-  let holdStartTime = 0;
-  let activeBlinkType = null;
+  // Minimum blink hold tracker: ensures brief 1-frame webcam blinks are visible (>= 80ms)
+  // while NEVER forcibly opening the eyes if the user is holding an eye closed or winking!
+  const minEyeCloseUntil = { blink: 0, blink_l: 0, blink_r: 0 };
 
   function init() {
     const container = document.getElementById("canvas-container");
@@ -575,7 +573,7 @@
       targetMotion.rotation.roll = data.rotation.roll || 0.0;
     }
 
-    if (data.gaze && blinkState !== "HOLD") {
+    if (data.gaze && targetMotion.vrm.blink < 0.35) {
       targetMotion.gaze.x = data.gaze.x || 0.0;
       targetMotion.gaze.y = data.gaze.y || 0.0;
     }
@@ -766,68 +764,41 @@
       rightLowerArmBone.rotation.set(0.0, -0.20, -0.15);
     }
 
-    // Blink State Machine (Runs every frame)
-    const isPhysicalBlink = targetMotion.vrm.blink >= 0.35 || targetMotion.vrm.blink_l >= 0.28 || targetMotion.vrm.blink_r >= 0.28;
-
-    if (blinkState === "IDLE") {
-      if (isPhysicalBlink) {
-        blinkState = "HOLD";
-        holdStartTime = now;
-        blinkTimer = now + 120; // Hold for at least 120ms
-        if (targetMotion.vrm.blink >= 0.35) activeBlinkType = "blink";
-        else if (targetMotion.vrm.blink_l >= 0.28) activeBlinkType = "blink_l";
-        else activeBlinkType = "blink_r";
-      }
-    } else if (blinkState === "HOLD") {
-      if (isPhysicalBlink) {
-        // If both eyes close while previously in single-eye wink, upgrade immediately to synchronized blink
-        if (activeBlinkType !== "blink" && targetMotion.vrm.blink >= 0.35) {
-          activeBlinkType = "blink";
-        }
-        // Cap the maximum hold duration at 260ms so smiling/squinting can NEVER freeze eyes shut!
-        if (now - holdStartTime < 260) {
-          blinkTimer = Math.max(blinkTimer, now + 60);
-        }
-      }
-      if (now >= blinkTimer || (now - holdStartTime) >= 260) {
-        blinkState = "COOLDOWN";
-        blinkTimer = now + 140; // Cooldown for 140ms
-      }
-    } else if (blinkState === "COOLDOWN") {
-      if (now >= blinkTimer) {
-        blinkState = "IDLE";
-        activeBlinkType = null;
-      }
+    // Mutual exclusivity enforcement across blink targets:
+    // Prevents synchronized Blink and single-eye Blink_L/R from ever stacking additively
+    if (targetMotion.vrm.blink > 0.15) {
+      targetMotion.vrm.blink_l = 0.0;
+      targetMotion.vrm.blink_r = 0.0;
+      currentMotion.vrm.blink_l = 0.0;
+      currentMotion.vrm.blink_r = 0.0;
+    } else if (targetMotion.vrm.blink_l > 0.15) {
+      targetMotion.vrm.blink = 0.0;
+      targetMotion.vrm.blink_r = 0.0;
+      currentMotion.vrm.blink = 0.0;
+      currentMotion.vrm.blink_r = 0.0;
+    } else if (targetMotion.vrm.blink_r > 0.15) {
+      targetMotion.vrm.blink = 0.0;
+      targetMotion.vrm.blink_l = 0.0;
+      currentMotion.vrm.blink = 0.0;
+      currentMotion.vrm.blink_l = 0.0;
     }
 
-    // Mutual exclusivity enforcement across blink targets:
-    // Prevents Blink and Blink_L/R from ever stacking additively (which causes > 100% vertex displacement)
-    if (activeBlinkType === "blink" || targetMotion.vrm.blink > 0.10) {
-      targetMotion.vrm.blink_l = 0.0;
-      targetMotion.vrm.blink_r = 0.0;
-      currentMotion.vrm.blink_l = 0.0;
-      currentMotion.vrm.blink_r = 0.0;
-    } else if (activeBlinkType === "blink_l") {
-      targetMotion.vrm.blink = 0.0;
-      targetMotion.vrm.blink_r = 0.0;
-      currentMotion.vrm.blink = 0.0;
-      currentMotion.vrm.blink_r = 0.0;
-    } else if (activeBlinkType === "blink_r") {
-      targetMotion.vrm.blink = 0.0;
-      targetMotion.vrm.blink_l = 0.0;
-      currentMotion.vrm.blink = 0.0;
-      currentMotion.vrm.blink_l = 0.0;
+    // Minimum blink hold: ensures brief 1-frame webcam blinks are clearly visible (held for >= 80ms),
+    // while NEVER forcibly opening the eyes if the user is holding an eye closed or winking!
+    if (targetMotion.vrm.blink >= 0.35) {
+      minEyeCloseUntil.blink = Math.max(minEyeCloseUntil.blink, now + 80);
+    }
+    if (targetMotion.vrm.blink_l >= 0.28) {
+      minEyeCloseUntil.blink_l = Math.max(minEyeCloseUntil.blink_l, now + 80);
+    }
+    if (targetMotion.vrm.blink_r >= 0.28) {
+      minEyeCloseUntil.blink_r = Math.max(minEyeCloseUntil.blink_r, now + 80);
     }
 
     // Check if eyes are blinking or closing
-    const isBlinkActive = blinkState === "HOLD";
-    const isBothBlink = (
-      currentMotion.vrm.blink > 0.10 ||
-      targetMotion.vrm.blink > 0.15 ||
-      (isBlinkActive && activeBlinkType === "blink")
-    );
-    const isLeftClosing = isBothBlink || currentMotion.vrm.blink_l > 0.15 || (isBlinkActive && activeBlinkType === "blink_l");
-    const isRightClosing = isBothBlink || currentMotion.vrm.blink_r > 0.15 || (isBlinkActive && activeBlinkType === "blink_r");
+    const isBothBlink = (currentMotion.vrm.blink > 0.10 || targetMotion.vrm.blink > 0.15);
+    const isLeftClosing = isBothBlink || currentMotion.vrm.blink_l > 0.15 || targetMotion.vrm.blink_l > 0.15;
+    const isRightClosing = isBothBlink || currentMotion.vrm.blink_r > 0.15 || targetMotion.vrm.blink_r > 0.15;
 
     // LERP interpolate iris gaze smoothly when eyes are open; freeze during blink
     if (!isBothBlink) {
@@ -902,11 +873,9 @@
 
       let effectiveTarget = rawTargetVal;
       if (isBlink) {
-        if (blinkState === "HOLD" && activeBlinkType === key) {
-          const eyeSquint = Math.max(currentMotion.vrm.joy || 0, currentMotion.vrm.fun || 0, currentMotion.vrm.sorrow || 0);
-          effectiveTarget = Math.max(0.0, 1.0 - eyeSquint);
-        } else if (blinkState === "COOLDOWN") {
-          effectiveTarget = 0.0;
+        // If rawTargetVal has dropped to 0 but minimum hold time hasn't elapsed, keep eye closed
+        if (rawTargetVal < 0.15 && now < (minEyeCloseUntil[key] || 0)) {
+          effectiveTarget = 1.0;
         }
       }
 

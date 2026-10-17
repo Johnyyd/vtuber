@@ -681,11 +681,11 @@ def map_mediapipe_to_vrm(
     diff_r = bl_r - bl_l
 
     # A single-eye wink requires:
-    # 1. The winking eye is firmly closed (bl >= 0.40)
-    # 2. The other eye is genuinely resting/open (bl_other < 0.20 and raw_other < 0.28)
-    # 3. The difference between eyes is distinct (diff >= 0.25)
-    is_wink_l = bl_l >= 0.40 and bl_r < 0.20 and raw_r < 0.28 and diff_l >= 0.25
-    is_wink_r = bl_r >= 0.40 and bl_l < 0.20 and raw_l < 0.28 and diff_r >= 0.25
+    # 1. The winking eye is distinctly closed (bl >= 0.35)
+    # 2. The other eye is resting/open (bl_other < 0.25)
+    # 3. The difference between eyes is distinct (diff >= 0.20)
+    is_wink_l = bl_l >= 0.35 and bl_r < 0.25 and diff_l >= 0.20
+    is_wink_r = bl_r >= 0.35 and bl_l < 0.25 and diff_r >= 0.20
 
     if is_wink_l:
         # Deliberate left eye wink -> full 1.0 closure

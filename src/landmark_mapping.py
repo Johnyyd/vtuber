@@ -79,44 +79,67 @@ def map_mediapipe_to_vrc(mp_blendshapes: Dict[str, float]) -> Dict[str, float]:
     blink_val = max(g("eyeBlinkLeft"), g("eyeBlinkRight"))
     vrc["vrc_blink"] = _calibrate_blink(blink_val, deadzone=0.15, snap_thresh=0.35)
 
-    # 2. Visemes
-    # "aa" - wide open mouth (jawOpen)
-    vrc["vrc_v_aa"] = _clamp(
-        g("jawOpen") * 1.2
-        + g("mouthLowerDownLeft") * 0.3
-        + g("mouthLowerDownRight") * 0.3
-        - g("mouthClose") * 0.5
-    )
+    def dz(val: float, d: float = 0.05) -> float:
+        return max(0.0, float(val) - d)
 
-    # "ee" - wide horizontal mouth stretch / smile
-    vrc["vrc_v_ee"] = _clamp(
-        (g("mouthStretchLeft") + g("mouthStretchRight")) * 0.5
-        + (g("mouthSmileLeft") + g("mouthSmileRight")) * 0.4
-        - g("mouthPucker") * 0.4
-    )
+    # 2. Visemes with Priority Cascade: U (ou) > A (aa) > I (ih) > E (ee) > O (oh)
+    # "ou" - puckered / protruded lips (Vowel U)
+    pucker_u = dz(g("mouthPucker"), 0.06) * 1.3
+    funnel_u = dz(g("mouthFunnel"), 0.08) * 0.7
+    stretch_total = g("mouthStretchLeft") + g("mouthStretchRight")
+    cand_ou = _clamp(pucker_u + funnel_u - stretch_total * 0.3) if (pucker_u > 0.0 or funnel_u > 0.0) else 0.0
 
-    # "ih" - teeth together, slight smile/press
-    vrc["vrc_v_ih"] = _clamp(
-        (g("mouthPressLeft") + g("mouthPressRight")) * 0.5
-        + (g("mouthSmileLeft") + g("mouthSmileRight")) * 0.3
-    )
+    # "aa" - wide open mouth (jawOpen) (Vowel A)
+    jaw_open_raw = dz(g("jawOpen"), 0.06)
+    lower_down = dz(g("mouthLowerDownLeft") + g("mouthLowerDownRight"), 0.06)
+    cand_aa = _clamp(jaw_open_raw * 1.4 + lower_down * 0.4 - g("mouthClose") * 0.5)
 
-    # "oh" - rounded, open mouth (requires open jaw)
-    if g("jawOpen") > 0.10:
-        vrc["vrc_v_oh"] = _clamp(
-            g("jawOpen") * 0.6
-            + g("mouthFunnel") * 0.6
-            - g("mouthClose") * 0.5
-        )
+    # "ih" - teeth together, slight smile/press (Vowel I)
+    press_i = dz(g("mouthPressLeft") + g("mouthPressRight"), 0.08) * 0.5
+    smile_i = dz(g("mouthSmileLeft") + g("mouthSmileRight"), 0.12) * 0.3
+    cand_ih = _clamp(press_i + smile_i) if (press_i > 0.0 or smile_i > 0.0) else 0.0
+
+    # "ee" - wide horizontal mouth stretch / smile (Vowel E)
+    stretch_e = dz(stretch_total, 0.06) * 0.6
+    smile_e = dz(g("mouthSmileLeft") + g("mouthSmileRight"), 0.06) * 0.4
+    cand_ee = _clamp(stretch_e + smile_e - g("mouthPucker") * 0.4) if (stretch_e > 0.0 or smile_e > 0.0) else 0.0
+
+    # "oh" - rounded, open mouth (requires open jaw) (Vowel O)
+    if g("jawOpen") > 0.12:
+        cand_oh = _clamp(dz(g("jawOpen"), 0.10) * 0.8 + dz(g("mouthFunnel"), 0.08) * 0.8 - g("mouthClose") * 0.5)
     else:
-        vrc["vrc_v_oh"] = 0.0
+        cand_oh = 0.0
 
-    # "ou" - puckered / protruded lips
-    vrc["vrc_v_ou"] = _clamp(
-        g("mouthPucker") * 1.1
-        + g("mouthFunnel") * 0.7
-        - (g("mouthStretchLeft") + g("mouthStretchRight")) * 0.3
-    )
+    # Cascade Hierarchy: U > A > I > E > O
+    # Priority 1: U suppresses others
+    if cand_ou > 0.10:
+        cand_aa = _clamp(max(0.0, cand_aa - cand_ou * 0.8))
+        cand_ih = _clamp(max(0.0, cand_ih - cand_ou * 1.5))
+        cand_ee = _clamp(max(0.0, cand_ee - cand_ou * 1.5))
+        cand_oh = _clamp(max(0.0, cand_oh - cand_ou * 0.6))
+
+    # Priority 2: A suppresses I and O
+    if cand_aa > 0.20:
+        cand_ih = _clamp(max(0.0, cand_ih - (cand_aa - 0.20) * 2.2))
+
+    # Priority 3: I suppresses E and O (only when not wide stretched)
+    if cand_ih > 0.08 and stretch_total < 0.20:
+        cand_ee = _clamp(max(0.0, cand_ee - cand_ih * 0.8))
+        cand_oh = _clamp(max(0.0, cand_oh - cand_ih * 1.2))
+
+    # Priority 4: E suppresses O
+    if cand_ee > 0.08:
+        cand_oh = _clamp(max(0.0, cand_oh - cand_ee * 1.2))
+
+    # Priority 5: O
+    if cand_ou > 0.25 and g("jawOpen") < 0.25:
+        cand_oh = max(0.0, cand_oh - cand_ou * 0.5)
+
+    vrc["vrc_v_ou"] = cand_ou
+    vrc["vrc_v_aa"] = cand_aa
+    vrc["vrc_v_ih"] = cand_ih
+    vrc["vrc_v_ee"] = cand_ee
+    vrc["vrc_v_oh"] = cand_oh
 
     # Consonants / intermediate shapes
     vrc["vrc_v_ch"] = _clamp((g("mouthPressLeft") + g("mouthPressRight")) * 0.3)
@@ -591,15 +614,15 @@ def map_mediapipe_to_vrm(
     # Priority 1: U (highest)
     # When U is actively puckered, it suppresses other vowels
     if cand_u > 0.10:
-        cand_a = _clamp(max(0.0, cand_a - cand_u * 0.8))
-        cand_i = _clamp(max(0.0, cand_i - cand_u * 1.5))
-        cand_e = _clamp(max(0.0, cand_e - cand_u * 1.5))
-        cand_o = _clamp(max(0.0, cand_o - cand_u * 0.6))
+        cand_a = _clamp(max(0.0, cand_a - cand_u * 1.5))
+        cand_i = _clamp(max(0.0, cand_i - cand_u * 2.0))
+        cand_e = _clamp(max(0.0, cand_e - cand_u * 2.0))
+        cand_o = _clamp(max(0.0, cand_o - cand_u * 1.8))
 
     # Priority 2: A
-    # Vertical jaw open dominates over narrow horizontal stretch when jaw is open wide.
-    if cand_a > 0.20:
-        cand_i = _clamp(max(0.0, cand_i - (cand_a - 0.20) * 2.2))
+    # Vertical jaw open dominates over narrow horizontal stretch when jaw is open wide (open_metric >= 0.22).
+    if open_metric >= 0.22 and cand_a > 0.35:
+        cand_i = _clamp(max(0.0, cand_i - (cand_a - 0.35) * 2.2))
 
     # Priority 3: I
     # I requires lateral retraction with narrow gap. Suppresses E and O.
@@ -618,7 +641,7 @@ def map_mediapipe_to_vrm(
         cand_o = max(0.0, cand_o - cand_u * 0.5)
 
     # Attenuate A when specific vowels (U, O, I, E) are strongly formed
-    cand_a = _clamp(max(0.0, cand_a - cand_u * 0.5 - cand_o * 0.5 - cand_i * 0.5 - cand_e * 0.35))
+    cand_a = _clamp(max(0.0, cand_a - cand_u * 0.8 - cand_o * 0.5 - cand_i * 0.8 - cand_e * 0.35))
 
     vrm["u"] = cand_u
     vrm["a"] = cand_a
@@ -722,8 +745,12 @@ def map_mediapipe_to_vrm(
     # 1. Eyes widened (eye_wide >= 0.04)
     # 2. Mouth gasped/opened (raw_speech >= 0.06 or jaw_active >= 0.06)
     # 3. Deliberate eyebrow raising (brow_raise >= brow_dz + 0.10)
+    # NOTE: When smiling, the cheeks naturally bunch upward, pulling eyebrows up slightly.
+    # If the user is actively smiling (effective_smile > 0.15) and NOT widening eyes (eye_wide < 0.04),
+    # this is a smile, NOT surprise!
+    is_smiling_not_surprised = (effective_smile > 0.15 and eye_wide < 0.04)
     is_surprised_marker = (eye_wide >= 0.04 or raw_speech >= 0.06 or brow_raise >= (brow_dz + 0.10))
-    if not mouth_occluded and brow_raise > brow_dz and frown < 0.15 and is_surprised_marker:
+    if not mouth_occluded and brow_raise > brow_dz and frown < 0.15 and is_surprised_marker and not is_smiling_not_surprised:
         brow_act = (brow_raise - brow_dz) * brow_gain
         eye_wide_boost = max(0.0, eye_wide - 0.03) * 2.5
         raw_surprised = _clamp(brow_act + eye_wide_boost)
@@ -752,28 +779,23 @@ def map_mediapipe_to_vrm(
     else:
         raw_sorrow = 0.0
 
-    # Anatomical Zone-based Expression Arbitration:
-    # 1. Mouth zone: Joy (smile) vs Sorrow (frown)
-    if raw_joy > 0.18 and raw_joy >= raw_sorrow:
-        vrm["joy"] = raw_joy
-        vrm["sorrow"] = 0.0
-    elif raw_sorrow > 0.18:
-        vrm["sorrow"] = raw_sorrow
-        vrm["joy"] = 0.0
-    else:
-        vrm["joy"] = 0.0
-        vrm["sorrow"] = 0.0
+    # STRICT MUTUAL EXCLUSIVITY FOR FACIAL EXPRESSIONS:
+    # In VRM avatars, expressions (Joy, Surprised, Angry, Sorrow) alter both eyes and mouth.
+    # Combining two expressions at once causes severe mesh collision and distortion.
+    # Therefore, ONLY THE SINGLE HIGHEST (DOMINANT) EMOTION is active at any time.
+    emo_candidates = {
+        "joy": raw_joy if raw_joy > 0.18 else 0.0,
+        "surprised": raw_surprised if raw_surprised > 0.18 else 0.0,
+        "angry": raw_angry if raw_angry > 0.16 else 0.0,
+        "sorrow": raw_sorrow if raw_sorrow > 0.18 else 0.0,
+    }
+    dominant_emo, max_val = max(emo_candidates.items(), key=lambda kv: kv[1])
 
-    # 2. Eyebrow zone: Surprised (raised) vs Angry (furrowed)
-    if raw_surprised > 0.16 and raw_surprised >= raw_angry:
-        vrm["surprised"] = raw_surprised
-        vrm["angry"] = 0.0
-    elif raw_angry > 0.16:
-        vrm["angry"] = raw_angry
-        vrm["surprised"] = 0.0
-    else:
-        vrm["surprised"] = 0.0
-        vrm["angry"] = 0.0
+    for emo in ["joy", "surprised", "angry", "sorrow"]:
+        if emo == dominant_emo and max_val > 0.0:
+            vrm[emo] = max_val
+        else:
+            vrm[emo] = 0.0
 
     vrm["fun"] = _clamp(vrm["joy"] * 0.85)
 
@@ -949,18 +971,22 @@ def draw_mediapipe_debug(
     pitch = float(rot.get("pitch", 0.0)) * (180.0 / np.pi)
     yaw = float(rot.get("yaw", 0.0)) * (180.0 / np.pi)
     roll = float(rot.get("roll", 0.0)) * (180.0 / np.pi)
-    joy = float(vrm.get("joy", 0.0))
+    mouth_u = float(vrm.get("u", 0.0))
     mouth_a = float(vrm.get("a", 0.0))
+    mouth_i = float(vrm.get("i", 0.0))
+    mouth_e = float(vrm.get("e", 0.0))
+    mouth_o = float(vrm.get("o", 0.0))
     blink_l = float(vrm.get("blink_l", 0.0))
     blink_r = float(vrm.get("blink_r", 0.0))
 
+    joy = float(vrm.get("joy", 0.0))
     surprised = float(vrm.get("surprised", 0.0))
     angry = float(vrm.get("angry", 0.0))
     sorrow = float(vrm.get("sorrow", 0.0))
 
-    line1 = f"Backend: Google MediaPipe | Head: Pitch:{pitch:+.1f}*  Yaw:{yaw:+.1f}*  Roll:{roll:+.1f}*"
+    line1 = f"Backend: Google MediaPipe (face_landmarker.task) | Head: Pitch:{pitch:+.1f}*  Yaw:{yaw:+.1f}*  Roll:{roll:+.1f}*"
     line2 = f"JOY: {joy:.2f} | Surprised: {surprised:.2f} | Angry: {angry:.2f} | Sorrow: {sorrow:.2f}"
-    line3 = f"Mouth: A={mouth_a:.2f} | Blink: L={blink_l:.2f} R={blink_r:.2f} | Gaze: X={telem.get('gaze', {}).get('x', 0.0):+.2f} Y={telem.get('gaze', {}).get('y', 0.0):+.2f}"
+    line3 = f"Vowels (U,A,I,E,O): U={mouth_u:.2f} A={mouth_a:.2f} I={mouth_i:.2f} E={mouth_e:.2f} O={mouth_o:.2f} | Blink: L={blink_l:.2f} R={blink_r:.2f}"
 
     cv2.putText(canvas, line1, (12, h - 68), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
     info_col = (0, 0, 255) if angry > 0.05 else ((0, 165, 255) if surprised > 0.05 else ((0, 100, 255) if joy > 0.05 else (0, 255, 128)))

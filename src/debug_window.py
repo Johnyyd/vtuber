@@ -204,9 +204,9 @@ class TrackingDebugWindow(QWidget):
 
         self.bar_smile_lift = TelemetryBar("Smile Lift (Raw)", -0.40, 0.10)
         self.bar_joy = TelemetryBar("Joy (Cuoi)", 0.0, 1.0)
+        self.bar_u = TelemetryBar("Vowel U", 0.0, 1.0)
         self.bar_a = TelemetryBar("Mouth A (Mo)", 0.0, 1.0)
         self.bar_i = TelemetryBar("Vowel I", 0.0, 1.0)
-        self.bar_u = TelemetryBar("Vowel U", 0.0, 1.0)
         self.bar_e = TelemetryBar("Vowel E", 0.0, 1.0)
         self.bar_o = TelemetryBar("Vowel O", 0.0, 1.0)
         self.bar_brow_ratio = TelemetryBar("Brow Ratio (Raw)", 0.25, 0.75)
@@ -216,9 +216,9 @@ class TrackingDebugWindow(QWidget):
 
         lay_mouth.addWidget(self.bar_smile_lift)
         lay_mouth.addWidget(self.bar_joy)
+        lay_mouth.addWidget(self.bar_u)
         lay_mouth.addWidget(self.bar_a)
         lay_mouth.addWidget(self.bar_i)
-        lay_mouth.addWidget(self.bar_u)
         lay_mouth.addWidget(self.bar_e)
         lay_mouth.addWidget(self.bar_o)
         lay_mouth.addWidget(self.bar_brow_ratio)

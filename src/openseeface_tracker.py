@@ -492,31 +492,21 @@ def map_openseeface_to_vrm(
     elif open_val > 0.18 and joy < 0.45:
         joy = 0.0
 
-    # Anatomical Zone-based Expression Arbitration:
-    # Eyebrows (Surprised, Angry) and Mouth (Joy, Sorrow) are independent facial zones.
-    # Joy should NEVER suppress Surprised or Angry!
-
-    # 1. Mouth zone: Joy (smile) vs Sorrow (frown)
-    if joy > 0.15 and joy >= sorrow:
-        final_joy = joy
-        final_sorrow = 0.0
-    elif sorrow > 0.15:
-        final_sorrow = sorrow
-        final_joy = 0.0
-    else:
-        final_joy = 0.0
-        final_sorrow = 0.0
-
-    # 2. Eyebrow zone: Surprised (raised) vs Angry (furrowed)
-    if surprised > 0.15 and surprised >= angry:
-        final_surprised = surprised
-        final_angry = 0.0
-    elif angry > 0.15:
-        final_angry = angry
-        final_surprised = 0.0
-    else:
-        final_surprised = 0.0
-        final_angry = 0.0
+    # STRICT MUTUAL EXCLUSIVITY FOR FACIAL EXPRESSIONS:
+    # In VRM avatars, expressions (Joy, Surprised, Angry, Sorrow) alter both eyes and mouth.
+    # Combining two expressions at once causes severe mesh collision and distortion.
+    # Therefore, ONLY THE SINGLE HIGHEST (DOMINANT) EMOTION is active at any time.
+    emo_candidates = {
+        "joy": joy if joy > 0.18 else 0.0,
+        "surprised": surprised if surprised > 0.18 else 0.0,
+        "angry": angry if angry > 0.16 else 0.0,
+        "sorrow": sorrow if sorrow > 0.18 else 0.0,
+    }
+    dominant_emo, max_val = max(emo_candidates.items(), key=lambda kv: kv[1])
+    final_joy = max_val if dominant_emo == "joy" and max_val > 0.0 else 0.0
+    final_surprised = max_val if dominant_emo == "surprised" and max_val > 0.0 else 0.0
+    final_angry = max_val if dominant_emo == "angry" and max_val > 0.0 else 0.0
+    final_sorrow = max_val if dominant_emo == "sorrow" and max_val > 0.0 else 0.0
 
     fun = _clamp(final_joy * 0.85)
 

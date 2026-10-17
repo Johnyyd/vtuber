@@ -872,28 +872,27 @@
     const eyeKeys = ["blink", "blink_l", "blink_r", "joy", "fun", "sorrow", "angry", "surprised"];
     const mouthKeys = ["u", "a", "i", "e", "o", "joy", "angry", "sorrow", "fun", "surprised"];
 
-    // Zone-based Mutual Exclusivity for Facial Expressions:
-    // Eyebrows (Surprised, Angry) and Mouth (Joy, Sorrow) are independent anatomical zones.
-    // 1. Mouth zone: Joy (smile) vs Sorrow (frown)
-    const joyVal = targetMotion.vrm.joy || 0.0;
-    const sorrowVal = targetMotion.vrm.sorrow || 0.0;
-    if (joyVal > 0.0 && sorrowVal > 0.0) {
-      if (joyVal >= sorrowVal) {
-        targetMotion.vrm.sorrow = 0.0;
-      } else {
-        targetMotion.vrm.joy = 0.0;
+    // Strict Mutual Exclusivity for Facial Expressions:
+    // In VRM avatars, expressions (Joy, Surprised, Angry, Sorrow) alter both eyes and mouth.
+    // Combining two expressions at once causes severe mesh distortion (e.g. Joy + Surprised).
+    // Only ONE dominant emotion (highest intensity) is allowed at any time.
+    const emoKeys = ["joy", "surprised", "angry", "sorrow"];
+    let maxEmoKey = null;
+    let maxEmoVal = 0.0;
+    for (const k of emoKeys) {
+      const v = targetMotion.vrm[k] || 0.0;
+      if (v > maxEmoVal) {
+        maxEmoVal = v;
+        maxEmoKey = k;
       }
     }
-
-    // 2. Eyebrow zone: Surprised (raised) vs Angry (furrowed)
-    const surprisedVal = targetMotion.vrm.surprised || 0.0;
-    const angryVal = targetMotion.vrm.angry || 0.0;
-    if (surprisedVal > 0.0 && angryVal > 0.0) {
-      if (surprisedVal >= angryVal) {
-        targetMotion.vrm.angry = 0.0;
-      } else {
-        targetMotion.vrm.surprised = 0.0;
+    for (const k of emoKeys) {
+      if (k !== maxEmoKey || maxEmoVal < 0.05) {
+        targetMotion.vrm[k] = 0.0;
       }
+    }
+    if (targetMotion.vrm.joy <= 0.0) {
+      targetMotion.vrm.fun = 0.0;
     }
 
     const vowelKeys = ["u", "a", "i", "e", "o"];
@@ -914,14 +913,17 @@
       // Responsive LERP interpolation:
       // Blinks: fast close (0.95), smooth open (0.35)
       // Speech vowels (A, E, I, O, U): snappy open (0.75) for real-time lip sync, smooth close (0.55)
-      // Other emotions: 0.45
+      // Emotions (Joy, Surprised, Angry, Sorrow): snappy clearing of suppressed emotions (0.85) to avoid overlapping morphs
       const isSpeechVowel = vowelKeys.includes(key);
+      const isEmotion = emoKeys.includes(key) || key === "fun";
       const isTargetHigher = effectiveTarget > currentMotion.vrm[key];
       let lerpFactor = 0.45;
       if (isBlink) {
         lerpFactor = isTargetHigher ? 0.95 : 0.35;
       } else if (isSpeechVowel) {
         lerpFactor = isTargetHigher ? 0.75 : 0.55;
+      } else if (isEmotion) {
+        lerpFactor = isTargetHigher ? 0.50 : 0.85;
       }
 
       currentMotion.vrm[key] +=
@@ -1014,8 +1016,15 @@
           if (vrm1Key === "ou") {
             vrm1Val = Math.min(0.60, vrm1Val);
           }
-          if ((vrm1Key === "happy" || vrm1Key === "surprised") && currentMotion.vrm.a > 0.05) {
-            const speechAtten = Math.max(0.0, 1.0 - currentMotion.vrm.a * 1.8);
+          const speechVowelMax1 = Math.max(
+            currentMotion.vrm.a || 0,
+            currentMotion.vrm.e || 0,
+            currentMotion.vrm.i || 0,
+            currentMotion.vrm.o || 0,
+            currentMotion.vrm.u || 0
+          );
+          if ((vrm1Key === "happy" || vrm1Key === "surprised") && speechVowelMax1 > 0.05) {
+            const speechAtten = Math.max(0.0, 1.0 - speechVowelMax1 * 1.8);
             vrm1Val *= speechAtten;
           }
           if (vrm1Key === "blink" || vrm1Key === "blinkLeft" || vrm1Key === "blinkRight") {

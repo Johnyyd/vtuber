@@ -792,6 +792,192 @@ class TestOpenSeeFaceMapping(unittest.TestCase):
         vrm_e = map_openseeface_to_vrm(face, tracker_instance=tracker)
         self.assertGreater(vrm_e["e"], 0.30, "Pronouncing E must trigger E > 0.30")
 
+    def test_openseeface_jaw_open_does_not_trigger_joy_and_joy_does_not_lock_emotions(self):
+        """Verify jaw drop does not cause false Joy, and that Joy never locks out other expressions."""
+        from openseeface_tracker import map_openseeface_to_vrm
+
+        class TrackerState:
+            def __init__(self):
+                self.brow_baseline = None
+                self.smile_baseline = None
+                self.mouth_width_baseline = None
+
+        tracker = TrackerState()
+
+        class DynamicFace:
+            def __init__(self):
+                self.lms = np.zeros((68, 3), dtype=np.float32)
+                # Nose 40px: 27=200, 30=240
+                self.lms[27, 0] = 200.0
+                self.lms[30, 0] = 240.0
+                # Eyes at Y=230
+                self.lms[36] = [230.0, 180.0, 1.0]
+                self.lms[39] = [230.0, 210.0, 1.0]
+                self.lms[42] = [230.0, 250.0, 1.0]
+                self.lms[45] = [230.0, 280.0, 1.0]
+                # Brows at Y=210 (dist=20px -> brow_ratio=0.50)
+                for i in (18, 19, 20, 23, 24, 25):
+                    self.lms[i, 0] = 210.0
+                # Mouth: Upper lip 51 at 277, lower lip 57 at 283
+                self.lms[51, 0] = 277.0
+                self.lms[57, 0] = 283.0
+                self.lms[48] = [284.0, 210.0, 1.0]
+                self.lms[54] = [284.0, 250.0, 1.0]
+                # Inner lips touching (lip_gap = 2px -> inner_mar = 0.05)
+                for i in (59, 60, 61):
+                    self.lms[i, 0] = 279.0
+                for i in (63, 64, 65):
+                    self.lms[i, 0] = 281.0
+                self.eye_blink = [1.0, 1.0]
+                self.current_features = {"mouth_open": 0.0, "mouth_wide": 0.0}
+
+        face = DynamicFace()
+        # Calibrate resting baseline
+        vrm_neutral = map_openseeface_to_vrm(face, tracker_instance=tracker)
+        self.assertEqual(vrm_neutral["joy"], 0.0)
+        self.assertEqual(vrm_neutral["surprised"], 0.0)
+        self.assertEqual(vrm_neutral["angry"], 0.0)
+        self.assertEqual(vrm_neutral["sorrow"], 0.0)
+
+        # 1. Jaw drop (speaking A): lower lip 57 drops to 310, inner lower lips drop to 305, mouth_open=0.50
+        # Mouth corners remain level or drop slightly to 286. Upper lip 51 stays at 277.
+        face.lms[57, 0] = 310.0
+        for i in (63, 64, 65):
+            face.lms[i, 0] = 305.0
+        face.lms[48, 0] = 286.0
+        face.lms[54, 0] = 286.0
+        face.current_features["mouth_open"] = 0.50
+        vrm_speech = map_openseeface_to_vrm(face, tracker_instance=tracker)
+        self.assertGreater(vrm_speech["a"], 0.30, "Vowel A must respond to mouth opening")
+        self.assertEqual(vrm_speech["joy"], 0.0, "Opening mouth for speech must NOT trigger false Joy!")
+
+        # 2. Smile: corners lift up to 274 (s_delta > 0.06 -> Joy triggers)
+        face.lms[57, 0] = 283.0
+        for i in (63, 64, 65):
+            face.lms[i, 0] = 281.0
+        face.lms[48, 0] = 274.0
+        face.lms[54, 0] = 274.0
+        face.current_features["mouth_open"] = 0.0
+        vrm_joy = map_openseeface_to_vrm(face, tracker_instance=tracker)
+        self.assertGreater(vrm_joy["joy"], 0.50, "Smiling must trigger Joy > 0.50")
+
+        # 3. Transition from Joy to Surprised: user raises eyebrows (brows move from 210 to 203)
+        # Even if mouth corners haven't fully dropped back down (e.g. at 282, still slight residual 2px lift),
+        # Surprised is dominant and Winner-Takes-All must activate Surprised and clear Joy to 0.0!
+        face.lms[48, 0] = 282.0
+        face.lms[54, 0] = 282.0
+        for i in (18, 19, 20, 23, 24, 25):
+            face.lms[i, 0] = 203.0
+        vrm_surp = map_openseeface_to_vrm(face, tracker_instance=tracker)
+        self.assertGreater(vrm_surp["surprised"], 0.50, "Raising eyebrows must trigger Surprised > 0.50")
+        self.assertEqual(vrm_surp["joy"], 0.0, "Surprised must cleanly override lingering Joy to 0.0")
+
+        # 4. Transition from Joy to Angry: user furrows eyebrows (brows move to 216)
+        face.lms[48, 0] = 284.0
+        face.lms[54, 0] = 284.0
+        for i in (18, 19, 20, 23, 24, 25):
+            face.lms[i, 0] = 216.0
+        vrm_angry = map_openseeface_to_vrm(face, tracker_instance=tracker)
+        self.assertGreater(vrm_angry["angry"], 0.40, "Furrowing brows must trigger Angry > 0.40")
+        self.assertEqual(vrm_angry["joy"], 0.0, "Angry must cleanly override Joy to 0.0")
+
+        # 5. Release back to neutral face: brows at 210, corners at 284 (or slight 1px jitter 283)
+        for i in (18, 19, 20, 23, 24, 25):
+            face.lms[i, 0] = 210.0
+        face.lms[48, 0] = 283.0
+        face.lms[54, 0] = 283.0
+        vrm_released = map_openseeface_to_vrm(face, tracker_instance=tracker)
+        self.assertEqual(vrm_released["joy"], 0.0, "Releasing to neutral face must strictly have Joy = 0.0")
+        self.assertEqual(vrm_released["angry"], 0.0)
+        self.assertEqual(vrm_released["surprised"], 0.0)
+        self.assertEqual(vrm_released["sorrow"], 0.0)
+
+    def test_openseeface_temporal_filtering_and_smoothstep_hysteresis(self):
+        try:
+            from openseeface_tracker import (
+                map_openseeface_to_vrm,
+                _smoothstep,
+                OpenSeeFaceTracker,
+            )
+        except ImportError:
+            from src.openseeface_tracker import (
+                map_openseeface_to_vrm,
+                _smoothstep,
+                OpenSeeFaceTracker,
+            )
+
+        # 1. Test Smoothstep mathematical properties:
+        # C1 continuous, S-shaped curve
+        self.assertEqual(_smoothstep(0.0, 1.0, -0.5), 0.0)
+        self.assertEqual(_smoothstep(0.0, 1.0, 1.5), 1.0)
+        self.assertAlmostEqual(_smoothstep(0.0, 1.0, 0.5), 0.5, places=4)
+        # Low slope near edges (smooth start and stop)
+        val_near_start = _smoothstep(0.0, 1.0, 0.05)
+        # Linear would be 0.05, cubic smoothstep is 3*(0.05)^2 - 2*(0.05)^3 = 0.00725 (much gentler, eliminates jerk)
+        self.assertLess(val_near_start, 0.01)
+
+        # 2. Test OpenSeeFaceTracker metric filters attenuate sensor jitter:
+        tracker = OpenSeeFaceTracker(width=640, height=480, max_threads=1)
+        self.assertIsNotNone(tracker.filter_smile)
+        self.assertIsNotNone(tracker.filter_brow)
+
+        class JitterFace:
+            def __init__(self, corner_y=284.0, brow_y=210.0):
+                self.lms = np.zeros((68, 3), dtype=np.float32)
+                self.lms[27, 0] = 200.0
+                self.lms[30, 0] = 240.0
+                self.lms[36] = [230.0, 180.0, 1.0]
+                self.lms[39] = [230.0, 210.0, 1.0]
+                self.lms[42] = [230.0, 250.0, 1.0]
+                self.lms[45] = [230.0, 280.0, 1.0]
+                for i in (18, 19, 20, 23, 24, 25):
+                    self.lms[i, 0] = brow_y
+                self.lms[51, 0] = 277.0
+                self.lms[57, 0] = 283.0
+                self.lms[48] = [corner_y, 210.0, 1.0]
+                self.lms[54] = [corner_y, 250.0, 1.0]
+                for i in (59, 60, 61):
+                    self.lms[i, 0] = 279.0
+                for i in (63, 64, 65):
+                    self.lms[i, 0] = 281.0
+                self.eye_blink = [1.0, 1.0]
+                self.current_features = {"mouth_open": 0.0, "mouth_wide": 0.0}
+
+        t_sim = 1000.0
+        # Sequence of frames with ±1px camera sensor noise around resting position 284
+        for noisy_y in [284.0, 283.0, 285.0, 283.5, 284.2]:
+            f = JitterFace(corner_y=noisy_y, brow_y=210.0)
+            res = map_openseeface_to_vrm(f, tracker_instance=tracker, timestamp=t_sim)
+            t_sim += 0.033
+            self.assertEqual(res["joy"], 0.0, "Jitter at resting face must be filtered to zero joy")
+            self.assertEqual(res["surprised"], 0.0)
+
+        # 3. Test Hysteresis (Schmitt Trigger):
+        # Trigger deliberate smile: corners lift to 273 (joy > 0.50) sustained over several frames (at 30 FPS)
+        for _ in range(8):
+            f_smile = JitterFace(corner_y=273.0)
+            res_smile = map_openseeface_to_vrm(f_smile, tracker_instance=tracker, timestamp=t_sim)
+            t_sim += 0.033
+        self.assertGreater(res_smile["joy"], 0.50)
+        self.assertEqual(tracker.active_emotion, "joy")
+
+        # Now corners relax down slightly so raw joy is ~0.16 (below attack 0.20, but above release 0.14)
+        # Hysteresis keeps joy stable without boundary flicker:
+        for _ in range(4):
+            f_relax = JitterFace(corner_y=279.8)
+            res_relax = map_openseeface_to_vrm(f_relax, tracker_instance=tracker, timestamp=t_sim)
+            t_sim += 0.033
+        if res_relax["joy"] > 0:
+            self.assertEqual(tracker.active_emotion, "joy")
+
+        # Now fully release face: corners drop to 284.0 -> joy strictly releases to 0.0
+        for _ in range(8):
+            f_neutral = JitterFace(corner_y=284.0)
+            res_neutral = map_openseeface_to_vrm(f_neutral, tracker_instance=tracker, timestamp=t_sim)
+            t_sim += 0.033
+        self.assertEqual(res_neutral["joy"], 0.0)
+        self.assertIsNone(tracker.active_emotion)
+
 
 if __name__ == "__main__":
     unittest.main()

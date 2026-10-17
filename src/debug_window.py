@@ -200,7 +200,7 @@ class TrackingDebugWindow(QWidget):
         grp_mouth = QGroupBox("Khau Hinh & Nu Cuoi (Expressions)")
         lay_mouth = QVBoxLayout(grp_mouth)
 
-        self.bar_smile_lift = TelemetryBar("Smile Lift (Raw)", -0.10, 0.15)
+        self.bar_smile_lift = TelemetryBar("Smile Lift (Raw)", -0.40, 0.10)
         self.bar_joy = TelemetryBar("Joy (Cuoi)", 0.0, 1.0)
         self.bar_a = TelemetryBar("Mouth A (Mo)", 0.0, 1.0)
         self.bar_i = TelemetryBar("Vowel I", 0.0, 1.0)

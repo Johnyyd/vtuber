@@ -491,7 +491,9 @@ def map_mediapipe_to_vrm(
     # VOWEL U (Lips puckered forward / chu môi):
     # Puckering physically contracts mouth corners horizontally (mouth_ratio < 0.32).
     # When resting, lips are flat/uncontracted (mouth_ratio >= 0.32); when puckered, ratio contracts.
-    if mouth_occluded:
+    # Note: If mouth is primarily funneled open (funnel > pucker and funnel > 0.20), it is vowel O, not U.
+    is_primarily_funnel = (funnel > 0.20 and funnel >= pucker) or (pucker > 0.15 and raw_speech > 0.22 and funnel > 0.10)
+    if mouth_occluded or is_primarily_funnel:
         u_val = 0.0
     elif landmarks and "lm61" in landmarks and "lm291" in landmarks and "lm234" in landmarks and "lm454" in landmarks:
         if mouth_ratio < 0.32 and smile < 0.18 and raw_speech < 0.55:
@@ -530,12 +532,15 @@ def map_mediapipe_to_vrm(
     # 1. Smile vs Vowel Separation:
     # A smile elevates mouth corners upwards (Joy). It is NOT vowel I or E!
     # A closed-mouth smile (jaw <= 0.05 and raw_speech <= 0.05) must NEVER trigger I or E.
-    # True I/E requires lateral retraction (mouthStretch > 0.04) or landmark width expansion (lm_horiz > 0.04).
-    # During open-mouth speech (open_metric > 0.05), mouthSmile can contribute to speech width.
+    # True I/E requires lateral retraction with physical mouth opening or explicit lateral stretch.
     horiz_active = 0.0
     open_metric = max(raw_speech, jaw)
 
-    if mouth_occluded or (mouth_close > 0.35 and horiz_stretch < 0.15):
+    # Rest protection:
+    # When resting without active lateral stretch (horiz_stretch <= 0.05 and lm_horiz <= 0.05 and smile <= 0.05),
+    # or when lips are closed (mar_active == 0.0 and horiz_stretch < 0.12), I and E MUST BE 0.0!
+    is_at_rest = (horiz_stretch <= 0.05 and lm_horiz <= 0.05 and smile <= 0.05) or (open_metric < 0.04 and horiz_stretch < 0.10)
+    if mouth_occluded or (landmarks and mar_active == 0.0 and horiz_stretch < 0.12) or is_at_rest or (mouth_close > 0.35 and horiz_stretch < 0.15):
         i_val = 0.0
         e_val = 0.0
     else:
@@ -543,11 +548,11 @@ def map_mediapipe_to_vrm(
         # Only allow smile to contribute if mouth is actively speaking or lateral stretch is already engaged
         if (open_metric > 0.05 or horiz_stretch > 0.05) and smile > 0.04:
             smile_comp = (smile - 0.04) * 2.0
-            blend_horiz = max(stretch_comp, stretch_comp * 0.4 + smile_comp * 0.7)
+            blend_horiz = max(stretch_comp, stretch_comp * 0.5 + smile_comp * 0.8)
         else:
             blend_horiz = stretch_comp
 
-        lm_horiz_act = _clamp((lm_horiz - 0.04) * 2.5) if lm_horiz > 0.04 else 0.0
+        lm_horiz_act = _clamp((lm_horiz - 0.05) * 2.5) if lm_horiz > 0.05 else 0.0
         horiz_active = max(blend_horiz, lm_horiz_act)
 
         # If smile is dominant over stretch (e.g. wide grin / laugh), Joy takes priority over I/E
@@ -555,50 +560,70 @@ def map_mediapipe_to_vrm(
             horiz_active = 0.0
 
         if horiz_active > 0.04:
-            horiz_mag = _clamp(_dz(horiz_active, 0.02) * 2.6)
+            horiz_mag = _clamp(_dz(horiz_active, 0.02) * 2.8)
             # Speech biomechanics:
-            # Close front unrounded vowel 'I' has teeth close together (open_metric <= 0.10)
-            # Open-mid front unrounded vowel 'E' has jaw noticeably open (open_metric >= 0.20)
-            if open_metric <= 0.10:
+            # Close front unrounded vowel 'I' has teeth close together (open_metric <= 0.14)
+            # Open-mid front unrounded vowel 'E' has jaw noticeably open (open_metric >= 0.22)
+            if open_metric <= 0.14:
                 i_val = horiz_mag
                 e_val = 0.0
-            elif open_metric >= 0.20:
+            elif open_metric >= 0.22:
                 e_val = horiz_mag
                 i_val = 0.0
             else:
-                t_e = (open_metric - 0.10) / 0.10
+                t_e = (open_metric - 0.14) / 0.08
                 e_val = horiz_mag * t_e
                 i_val = horiz_mag * (1.0 - t_e)
         else:
             i_val = 0.0
             e_val = 0.0
 
-    # VOWEL PRIORITY CASCADE: A > E > I > U > O
-    # 1. E and I separation (E has higher priority than I: E > I):
-    # During open mouth speech (open_metric > 0.12), horizontal stretch is E, NEVER I.
-    # Close front vowel I requires narrow jaw (open_metric <= 0.10).
-    cand_e = _clamp(e_val)
-    # I is suppressed when jaw is open (A or E active)
-    cand_i = _clamp(max(0.0, i_val - (raw_a * 1.2 if raw_speech > 0.12 else 0.0) - cand_e * 1.5))
-
-    # 2. U and O separation (U has higher priority than O: U > O):
-    # Puckered mouth with small/moderate jaw is U; O is funneled/rounded open mouth.
+    # ==============================================================================
+    # VOWEL PRIORITY CASCADE: U > A > I > E > O
+    # ==============================================================================
     cand_u = min(u_max, _clamp(u_val))
+    raw_a_clean = _dz(raw_a, 0.02) * mouth_gain
+    cand_a = _clamp(raw_a_clean)
+    cand_i = _clamp(i_val)
+    cand_e = _clamp(e_val)
     cand_o = min(o_max, _clamp(o_val))
 
-    # U has higher priority than O (suppress O if U is active with small jaw)
+    # Priority 1: U (highest)
+    # When U is actively puckered, it suppresses other vowels
+    if cand_u > 0.10:
+        cand_a = _clamp(max(0.0, cand_a - cand_u * 0.8))
+        cand_i = _clamp(max(0.0, cand_i - cand_u * 1.5))
+        cand_e = _clamp(max(0.0, cand_e - cand_u * 1.5))
+        cand_o = _clamp(max(0.0, cand_o - cand_u * 0.6))
+
+    # Priority 2: A
+    # Vertical jaw open dominates over narrow horizontal stretch when jaw is open wide.
+    if cand_a > 0.20:
+        cand_i = _clamp(max(0.0, cand_i - (cand_a - 0.20) * 2.2))
+
+    # Priority 3: I
+    # I requires lateral retraction with narrow gap. Suppresses E and O.
+    if cand_i > 0.08:
+        cand_e = _clamp(max(0.0, cand_e - cand_i * 0.8))
+        cand_o = _clamp(max(0.0, cand_o - cand_i * 1.2))
+
+    # Priority 4: E
+    # Medium jaw with lateral stretch. Suppresses O.
+    if cand_e > 0.08:
+        cand_o = _clamp(max(0.0, cand_o - cand_e * 1.2))
+
+    # Priority 5: O (lowest)
+    # U suppresses O when U is active with small jaw
     if cand_u > 0.25 and raw_speech < 0.25:
         cand_o = max(0.0, cand_o - cand_u * 0.5)
 
-    # 3. A (Top priority - Vertical Jaw Opening):
-    # Attenuated gently when U, O, I, E are strongly formed
-    raw_a_clean = _dz(raw_a, 0.02) * mouth_gain
-    cand_a = _clamp(max(0.0, raw_a_clean - cand_u * 0.7 - cand_o * 0.5 - cand_i * 0.5 - cand_e * 0.35))
+    # Attenuate A when specific vowels (U, O, I, E) are strongly formed
+    cand_a = _clamp(max(0.0, cand_a - cand_u * 0.5 - cand_o * 0.5 - cand_i * 0.5 - cand_e * 0.35))
 
-    vrm["a"] = cand_a
-    vrm["e"] = cand_e
-    vrm["i"] = cand_i
     vrm["u"] = cand_u
+    vrm["a"] = cand_a
+    vrm["i"] = cand_i
+    vrm["e"] = cand_e
     vrm["o"] = cand_o
 
     vrm["neutral"] = _clamp(1.0 - (vrm["a"] + vrm["i"] + vrm["u"] + vrm["e"] + vrm["o"]))

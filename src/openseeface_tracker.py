@@ -124,8 +124,8 @@ def map_openseeface_to_vrm(
         lower_inner_y = float(np.mean(lms[[63, 64, 65], 0]))
         lip_gap = lower_inner_y - upper_inner_y
         inner_mar = lip_gap / nose_h
-        # If inner lips are touching (inner_mar <= 0.06), mouth is physically closed
-        if inner_mar <= 0.06:
+        # If inner lips are touching (inner_mar <= 0.07), mouth is physically closed
+        if inner_mar <= 0.07:
             mouth_open_raw = 0.0
 
         # Geometric mouth width tracking:
@@ -145,75 +145,117 @@ def map_openseeface_to_vrm(
         width_delta = float(w_ratio - width_baseline)
 
     wide_active = 0.0
+    pucker_active = 0.0
+
+    # Combined horizontal stretch metric:
+    # mouth_wide_raw is normalized offset; width_delta captures physical lateral retraction
+    geo_wide = width_delta * 6.0
+    combined_wide = mouth_wide_raw * 0.6 + geo_wide * 0.4 if width_delta != 0.0 else mouth_wide_raw
+
+    # Puckered lips for U (< -0.04)
+    if combined_wide < -0.04:
+        pucker_active = _clamp((-0.04 - combined_wide) * 2.5)
+    else:
+        pucker_active = 0.0
+
     if mouth_open_raw < mouth_open_deadzone:
         # Resting mouth stability: neutral expression, no random vowels
         v_a = 0.0
         v_i = 0.0
-        v_u = 0.0
         v_e = 0.0
         v_o = 0.0
         open_val = 0.0
+        # If lips are explicitly puckered, allow subtle U even with small aperture
+        v_u = _clamp(pucker_active * 0.5 * (u_gain / 1.5), 0.0, u_max_clamp) if pucker_active > 0.18 else 0.0
     else:
         open_val = _clamp((mouth_open_raw - mouth_open_deadzone) * mouth_open_gain)
 
-        # Combined horizontal stretch metric:
-        # mouth_wide_raw is normalized offset; width_delta captures physical lateral retraction
-        geo_wide = width_delta * 6.0
-        combined_wide = mouth_wide_raw * 0.6 + geo_wide * 0.4 if width_delta != 0.0 else mouth_wide_raw
-
-        # Deadzone on combined width for lateral stretch vowels (E, I)
-        wide_deadzone = 0.12
+        # Deadzone on combined width for lateral stretch vowels (E, I):
+        # Resting mouth width natural baseline is around 0.08..0.14.
+        # Intentional lateral stretch for 'I' or 'E' starts above 0.15.
+        wide_deadzone = 0.15
         if combined_wide > wide_deadzone:
-            wide_active = _clamp((combined_wide - wide_deadzone) * 2.2)
+            wide_active = _clamp((combined_wide - wide_deadzone) * 2.5)
         else:
             wide_active = 0.0
 
-        # Puckered lips for U (< -0.03)
-        if combined_wide < -0.03:
-            pucker_active = _clamp((-0.03 - combined_wide) * 2.2)
-        else:
-            pucker_active = 0.0
-
-        # Transition between I and E based on mouth vertical opening:
-        if open_val <= 0.14:
-            i_ratio = 1.0
+        # Vertical mouth opening curve for I vs E:
+        # Pronouncing 'I' requires teeth slightly apart (open_val roughly 0.03 to 0.18).
+        # When open_val < 0.03, lips are at rest: I and E MUST BE 0.0!
+        # When open_val >= 0.26, mouth is opened wide for E or A, not I.
+        if open_val < 0.025:
+            i_ratio = 0.0
             e_ratio = 0.0
-        elif open_val >= 0.28:
+        elif open_val <= 0.14:
+            i_ratio = _clamp((open_val - 0.025) / 0.035)
+            e_ratio = 0.0
+        elif open_val >= 0.26:
             i_ratio = 0.0
             e_ratio = 1.0
         else:
-            t = (open_val - 0.14) / 0.14
+            t = (open_val - 0.14) / 0.12
             i_ratio = 1.0 - t
             e_ratio = t
 
-        # VOWEL PRIORITY CASCADE:
+        # CANDIDATE VOWELS:
+        # 1. U: Lips puckered forward with narrow-to-moderate jaw (chu môi)
+        cand_u = _clamp(pucker_active * (open_val * 0.5 + 0.65) * (u_gain / 1.5) * 1.5, 0.0, u_max_clamp) if (pucker_active > 0.0 and open_val < 0.35) else 0.0
+
+        # 2. A: Vertical jaw opening
         cand_a = open_val
-        cand_e = _clamp(open_val * 1.5 * wide_active * e_ratio)
-        cand_i = _clamp(wide_active * i_ratio * 1.2)
-        # U requires lip puckering (pucker_active > 0)
-        cand_u = _clamp(pucker_active * (open_val * 0.6 + 0.4) * (u_gain / 1.5), 0.0, u_max_clamp) if pucker_active > 0.0 else 0.0
-        # O requires rounded lips with open jaw
+
+        # 3. I: Lateral stretch with slight opening (teeth visible)
+        cand_i = _clamp(wide_active * i_ratio * 1.4)
+
+        # 4. E: Lateral stretch with medium jaw opening
+        cand_e = _clamp(open_val * 1.8 * wide_active * e_ratio)
+
+        # 5. O: Rounded lips with open jaw
         if combined_wide < 0.04 and open_val > 0.15:
             cand_o = _clamp((open_val * 1.1) * (1.0 - max(0.0, combined_wide + 0.04) * 5.0) * (o_gain / 2.0), 0.0, o_max_clamp)
         else:
             cand_o = 0.0
 
-        # Suppress I if jaw is open speaking A or E
-        v_e = cand_e
-        v_i = _clamp(max(0.0, cand_i - (open_val * 1.0 if open_val > 0.15 else 0.0) - v_e * 1.2))
+        # ==============================================================================
+        # VOWEL PRIORITY CASCADE: U > A > I > E > O
+        # ==============================================================================
 
-        # Attenuate A and O when U is strongly puckered
-        if cand_u > 0.20:
-            cand_a = _clamp(max(0.0, cand_a - cand_u * 0.8))
-            cand_o = _clamp(max(0.0, cand_o - cand_u * 0.6))
-
+        # Priority 1: U (highest)
+        # When U is actively puckered, it suppresses all other vowels
         v_u = cand_u
-        v_o = cand_o
-        if v_u > 0.20 and open_val < 0.25:
-            v_o = _clamp(max(0.0, v_o - v_u * 0.5))
+        if v_u > 0.08:
+            cand_a = _clamp(max(0.0, cand_a - v_u * 2.0))
+            cand_i = _clamp(max(0.0, cand_i - v_u * 2.0))
+            cand_e = _clamp(max(0.0, cand_e - v_u * 2.0))
+            cand_o = _clamp(max(0.0, cand_o - v_u * 1.5))
 
-        # A is attenuated when distinct vowels (E, I, U) are formed
-        v_a = _clamp(max(0.0, cand_a - v_e * 0.35 - v_i * 0.5 - v_u * 0.5))
+        # Priority 2: A
+        # Vertical jaw open dominates over horizontal stretch when jaw is open wide without lateral stretch.
+        v_a = cand_a
+        if v_a > 0.20:
+            cand_i = _clamp(max(0.0, cand_i - (v_a - 0.20) * 2.2))
+            cand_o = _clamp(max(0.0, cand_o - (v_a - 0.25) * 1.0))
+        if v_a > 0.55:
+            cand_e = _clamp(max(0.0, cand_e - (v_a - 0.55) * 1.5))
+
+        # Priority 3: I
+        # I requires lateral retraction with narrow gap. When active, suppresses E and O.
+        v_i = cand_i
+        if v_i > 0.08:
+            cand_e = _clamp(max(0.0, cand_e - v_i * 0.8))
+            cand_o = _clamp(max(0.0, cand_o - v_i * 1.2))
+
+        # Priority 4: E
+        # Medium jaw with lateral stretch. Suppresses O.
+        v_e = cand_e
+        if v_e > 0.08:
+            cand_o = _clamp(max(0.0, cand_o - v_e * 1.2))
+
+        # Attenuate A when lateral vowels (I, E) are strongly formed with lateral stretch
+        v_a = _clamp(max(0.0, cand_a - v_i * 0.3 - v_e * 0.35))
+
+        # Priority 5: O (lowest)
+        v_o = cand_o
 
     # Emotions: Joy, Frown, Eyebrows
     joy = 0.0

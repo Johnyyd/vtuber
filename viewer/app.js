@@ -864,12 +864,13 @@
     // LERP interpolate expressions and blendshapes
     let topMouth = "Rest";
     let maxMouthWeight = 0.0;
+    let maxMouthScore = 0.0;
 
     let topEye = "Open";
     let maxEyeWeight = 0.0;
 
     const eyeKeys = ["blink", "blink_l", "blink_r", "joy", "fun", "sorrow", "angry", "surprised"];
-    const mouthKeys = ["a", "i", "u", "e", "o", "joy", "angry", "sorrow", "fun", "surprised"];
+    const mouthKeys = ["u", "a", "i", "e", "o", "joy", "angry", "sorrow", "fun", "surprised"];
 
     // Zone-based Mutual Exclusivity for Facial Expressions:
     // Eyebrows (Surprised, Angry) and Mouth (Joy, Sorrow) are independent anatomical zones.
@@ -895,7 +896,7 @@
       }
     }
 
-    const vowelKeys = ["a", "i", "u", "e", "o"];
+    const vowelKeys = ["u", "a", "i", "e", "o"];
 
     for (const [key, rawTargetVal] of Object.entries(targetMotion.vrm)) {
       const isBlink = (key === "blink" || key === "blink_l" || key === "blink_r");
@@ -1035,12 +1036,16 @@
           topEye = key.toUpperCase();
         }
         if (mouthKeys.includes(key)) {
-          // Priority order for mouth viseme: A > E > I > U > O
-          const vowelPriorityBonus = { "a": 0.05, "e": 0.04, "i": 0.03, "u": 0.02, "o": 0.01 };
-          const bonus = vowelPriorityBonus[key] || 0.0;
-          const weightedVal = currentMotion.vrm[key] + bonus;
-          if (weightedVal > maxMouthWeight) {
-            maxMouthWeight = currentMotion.vrm[key];
+          // Priority order for mouth viseme: U > A > I > E > O
+          const vowelPriorityBonus = { "u": 0.05, "a": 0.04, "i": 0.03, "e": 0.02, "o": 0.01 };
+          const val = currentMotion.vrm[key] || 0.0;
+          // Only add priority bonus when mouth shape is actively speaking (> 0.08),
+          // preventing resting baseline noise from being classified as a vowel.
+          const bonus = (val > 0.08) ? (vowelPriorityBonus[key] || 0.0) : 0.0;
+          const weightedVal = val + bonus;
+          if (weightedVal > maxMouthScore) {
+            maxMouthScore = weightedVal;
+            maxMouthWeight = val;
             topMouth = key.toUpperCase();
           }
         }

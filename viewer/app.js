@@ -681,7 +681,9 @@
     // Yaw: follows natural user gaze
     // Roll: inverted to correct left/right tilt inversion
     // Clamp to anatomical cervical limits to prevent any anomalous displacement
-    const p = Math.max(-0.60, Math.min(0.60, -currentMotion.rotation.pitch));
+    // headLevelOffset (-0.08 rad / ~4.5 deg) lowers the resting chin so face looks horizontally level at user
+    const headLevelOffset = -0.08;
+    const p = Math.max(-0.60, Math.min(0.60, -currentMotion.rotation.pitch + headLevelOffset));
     const y = Math.max(-0.70, Math.min(0.70, -currentMotion.rotation.yaw));
     const r = Math.max(-0.50, Math.min(0.50, currentMotion.rotation.roll));
 
@@ -882,10 +884,6 @@
 
     if (shouldOverrideVowels) {
       for (const k of vowelKeys) {
-        targetMotion.vrm[k] = 0.0;
-      }
-      const otherEyeKeys = ["blink", "blink_l", "blink_r"];
-      for (const k of otherEyeKeys) {
         targetMotion.vrm[k] = 0.0;
       }
       targetMotion.vrm["neutral"] = 0.0;

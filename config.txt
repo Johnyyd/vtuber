@@ -20,8 +20,8 @@ window_height = 600
 # Luon hien thi bang tuy chinh thong so truoc khi chay (True / False)
 show_launcher = true
 
-# Bat che do debug hien thi webcam va luoi diem (True / False)
-debug_mode = false
+# Bat che do go loi hien thi webcam va luoi diem (True / False)
+debug_mode = true
 
 
 [TRACKING_SENSITIVITY]

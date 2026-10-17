@@ -163,9 +163,16 @@ class TrackingWorker(QThread):
         self.hair_stiffness = float(self.config.get("hair_stiffness", 0.38))
         self.hair_drag = float(self.config.get("hair_drag", 0.58))
         self.backend = str(self.config.get("tracker_backend", "mediapipe")).strip().lower()
+        self.tracker = None
 
     def set_debug_mode(self, enabled: bool):
         self.debug_mode = bool(enabled)
+
+    def recalibrate(self):
+        """Reset tracking baselines for neutral posture calibration."""
+        if hasattr(self, "tracker") and self.tracker is not None:
+            if hasattr(self.tracker, "reset_baselines"):
+                self.tracker.reset_baselines()
 
     def run(self):
         backend_name = "OpenSeeFace ONNX" if self.backend == "openseeface" else "Google MediaPipe"
@@ -187,7 +194,8 @@ class TrackingWorker(QThread):
                 return
 
             try:
-                tracker = OpenSeeFaceTracker(width=1280, height=720, max_threads=2)
+                self.tracker = OpenSeeFaceTracker(width=1280, height=720, max_threads=2)
+                tracker = self.tracker
             except Exception as e:
                 self.status_changed.emit(f"Error loading OpenSeeFace: {e}")
                 reader.release()
@@ -283,13 +291,20 @@ class TrackingWorker(QThread):
                         self._fps_last_t = t_loop
 
                     if self.debug_mode:
-                        smile_val = getattr(tracker.last_face, "smile_lift", 0.0) if (tracked is not None and tracker.last_face) else 0.0
+                        has_face = tracked is not None and tracker.last_face is not None
+                        smile_val = getattr(tracker.last_face, "smile_lift", 0.0) if has_face else 0.0
+                        brow_val = getattr(tracker.last_face, "brow_ratio", 0.0) if has_face else 0.0
+                        brow_base = getattr(tracker.last_face, "brow_baseline", 0.0) if has_face else 0.0
+                        brow_del = getattr(tracker.last_face, "brow_delta", 0.0) if has_face else 0.0
                         telemetry = {
                             "backend": "OpenSeeFace ONNX",
                             "fps": self.fps,
                             "rotation": filtered_rotation if tracked is not None else {"pitch": 0.0, "yaw": 0.0, "roll": 0.0},
                             "gaze": filtered_gaze if tracked is not None else {"x": 0.0, "y": 0.0},
                             "smile_lift": smile_val,
+                            "brow_ratio": brow_val,
+                            "brow_baseline": brow_base,
+                            "brow_delta": brow_del,
                             "vrm_shapes": vrm_shapes if tracked is not None else {},
                         }
                         debug_frame = draw_openseeface_debug(
@@ -452,6 +467,9 @@ class TrackingWorker(QThread):
                         "rotation": filtered_rotation if has_face else {"pitch": 0.0, "yaw": 0.0, "roll": 0.0},
                         "gaze": filtered_gaze if has_face else {"x": 0.0, "y": 0.0},
                         "smile_lift": 0.0,
+                        "brow_ratio": 0.0,
+                        "brow_baseline": 0.0,
+                        "brow_delta": 0.0,
                         "vrm_shapes": vrm_shapes if has_face else {},
                     }
                     debug_frame = draw_mediapipe_debug(
@@ -543,10 +561,17 @@ class VTuberWindow(QMainWindow):
         if self.debug_window is not None and self.debug_window.isVisible():
             self.debug_window.update_debug_view(frame, telemetry)
 
+    def recalibrate(self):
+        """Trigger neutral baseline recalibration on tracking worker."""
+        if hasattr(self, "worker") and hasattr(self.worker, "recalibrate"):
+            self.worker.recalibrate()
+            print("[VTuber] Da can bang lai tu the trung tinh (Neutral Pose Calibrated - Phim C).")
+
     def toggle_debug_window(self):
         """Toggle visibility of tracking telemetry & video debug window."""
         if self.debug_window is None:
             self.debug_window = TrackingDebugWindow()
+            self.debug_window.on_recalibrate = self.recalibrate
         if self.debug_window.isVisible():
             self.debug_window.hide()
             self.worker.set_debug_mode(False)
@@ -599,9 +624,12 @@ class VTuberWindow(QMainWindow):
         self.web_view.page().runJavaScript(js_code)
 
     def keyPressEvent(self, event):
-        """Allow quick exit via Esc or Q key, and toggle debug window via D key."""
+        """Allow quick exit via Esc or Q key, toggle debug window via D key, recalibrate via C key."""
         if event.key() == Qt.Key.Key_D:
             self.toggle_debug_window()
+            event.accept()
+        elif event.key() == Qt.Key.Key_C:
+            self.recalibrate()
             event.accept()
         elif event.key() in (Qt.Key.Key_Escape, Qt.Key.Key_Q):
             self.close()

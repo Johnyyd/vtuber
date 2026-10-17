@@ -135,7 +135,7 @@ class TrackingDebugWindow(QWidget):
         video_layout.addWidget(self.video_label, 1)
 
         # Hint under video
-        hint_lbl = QLabel("Phim tat [D]: An/hien cua so Debug  |  [Esc]: Thoat ung dung")
+        hint_lbl = QLabel("Phim tat: [C] Can bang lai tu the (Recalibrate)  |  [D] An/hien Debug  |  [Esc] Thoat")
         hint_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         hint_lbl.setStyleSheet("color: #71717a; font-size: 11px; padding: 4px;")
         video_layout.addWidget(hint_lbl)
@@ -207,6 +207,7 @@ class TrackingDebugWindow(QWidget):
         self.bar_u = TelemetryBar("Vowel U", 0.0, 1.0)
         self.bar_e = TelemetryBar("Vowel E", 0.0, 1.0)
         self.bar_o = TelemetryBar("Vowel O", 0.0, 1.0)
+        self.bar_brow_ratio = TelemetryBar("Brow Ratio (Raw)", 0.25, 0.75)
         self.bar_surprised = TelemetryBar("Surprised", 0.0, 1.0)
         self.bar_sorrow = TelemetryBar("Sorrow", 0.0, 1.0)
 
@@ -217,6 +218,7 @@ class TrackingDebugWindow(QWidget):
         lay_mouth.addWidget(self.bar_u)
         lay_mouth.addWidget(self.bar_e)
         lay_mouth.addWidget(self.bar_o)
+        lay_mouth.addWidget(self.bar_brow_ratio)
         lay_mouth.addWidget(self.bar_surprised)
         lay_mouth.addWidget(self.bar_sorrow)
         scroll_layout.addWidget(grp_mouth)
@@ -275,8 +277,27 @@ class TrackingDebugWindow(QWidget):
         self.bar_u.set_value(float(vrm.get("u", 0.0)), active_color="#3b82f6")
         self.bar_e.set_value(float(vrm.get("e", 0.0)), active_color="#3b82f6")
         self.bar_o.set_value(float(vrm.get("o", 0.0)), active_color="#3b82f6")
-        self.bar_surprised.set_value(float(vrm.get("surprised", 0.0)), active_color="#f97316")
+        brow_ratio = float(telemetry.get("brow_ratio", 0.0))
+        brow_delta = float(telemetry.get("brow_delta", 0.0))
+        self.bar_brow_ratio.set_value(brow_ratio, active_color="#f97316" if brow_delta > 0.02 else "#10b981", alert_threshold=0.55)
+
+        self.bar_surprised.set_value(float(vrm.get("surprised", 0.0)), active_color="#f97316", alert_threshold=0.05)
         self.bar_sorrow.set_value(float(vrm.get("sorrow", 0.0)), active_color="#6366f1")
+
+    def keyPressEvent(self, event):
+        """Handle hotkeys: [C] recalibrate neutral baseline, [D] toggle hide, [Esc] close."""
+        if event.key() == Qt.Key.Key_C:
+            if hasattr(self, "on_recalibrate") and callable(self.on_recalibrate):
+                self.on_recalibrate()
+            event.accept()
+        elif event.key() == Qt.Key.Key_D:
+            self.hide()
+            event.accept()
+        elif event.key() in (Qt.Key.Key_Escape, Qt.Key.Key_Q):
+            self.hide()
+            event.accept()
+        else:
+            super().keyPressEvent(event)
 
     def closeEvent(self, event):
         """Hide window instead of destroying on user close."""

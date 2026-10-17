@@ -102,6 +102,9 @@ class TestDebugMode(unittest.TestCase):
             "rotation": {"pitch": 1.2, "yaw": -3.4, "roll": 0.5},
             "gaze": {"x": 0.1, "y": -0.2},
             "smile_lift": 0.008,
+            "brow_ratio": 0.48,
+            "brow_baseline": 0.45,
+            "brow_delta": 0.03,
             "vrm_shapes": {
                 "joy": 0.0,
                 "a": 0.45,

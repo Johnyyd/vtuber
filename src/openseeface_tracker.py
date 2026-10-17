@@ -107,51 +107,6 @@ def map_openseeface_to_vrm(
 
     lms = getattr(face, "lms", None)
 
-    # Eyes & Blinking
-    eye_blink = getattr(face, "eye_blink", None)
-    if eye_blink is not None and len(eye_blink) >= 2:
-        # OpenSeeFace eye_blink is 1.0 for open, 0.0 for closed
-        r_open = float(eye_blink[0])
-        l_open = float(eye_blink[1])
-        raw_blink_r = _clamp(1.0 - r_open)
-        raw_blink_l = _clamp(1.0 - l_open)
-    else:
-        raw_blink_r = 0.0
-        raw_blink_l = 0.0
-
-    # Apply snap threshold for clear, crisp blinking:
-    snap_closure = max(0.50, 1.0 - blink_snap_thresh)
-    bl_r = 0.0 if raw_blink_r < blink_deadzone else (_clamp((raw_blink_r - blink_deadzone) / (snap_closure - blink_deadzone)) if raw_blink_r < snap_closure else 1.0)
-    bl_l = 0.0 if raw_blink_l < blink_deadzone else (_clamp((raw_blink_l - blink_deadzone) / (snap_closure - blink_deadzone)) if raw_blink_l < snap_closure else 1.0)
-
-    # Distinguish natural synchronized blink vs deliberate single-eye wink:
-    diff_l = bl_l - bl_r
-    diff_r = bl_r - bl_l
-
-    # Single-eye wink conditions:
-    is_wink_l = bl_l >= 0.35 and bl_r < 0.25 and diff_l >= 0.20
-    is_wink_r = bl_r >= 0.35 and bl_l < 0.25 and diff_r >= 0.20
-
-    if is_wink_l:
-        vrm_blink = 0.0
-        vrm_blink_l = 1.0
-        vrm_blink_r = 0.0
-    elif is_wink_r:
-        vrm_blink = 0.0
-        vrm_blink_l = 0.0
-        vrm_blink_r = 1.0
-    elif max(bl_l, bl_r) >= 0.20:
-        vrm_blink = 1.0
-        vrm_blink_l = 0.0
-        vrm_blink_r = 0.0
-    else:
-        vrm_blink = 0.0
-        vrm_blink_l = 0.0
-        vrm_blink_r = 0.0
-
-    # Eyes closing/closed flag: prevents eyebrow distance calculation or Surprised from triggering when eyelids drop
-    is_closing_eyes = max(raw_blink_l, raw_blink_r) >= 0.25 or vrm_blink > 0.0 or vrm_blink_l > 0.0 or vrm_blink_r > 0.0
-
     # Mouth & Speech Vowels
     mouth_open_raw = float(features.get("mouth_open", 0.0))
     mouth_wide_raw = float(features.get("mouth_wide", 0.0))
@@ -260,7 +215,13 @@ def map_openseeface_to_vrm(
         # A is attenuated when distinct vowels (E, I, U) are formed
         v_a = _clamp(max(0.0, cand_a - v_e * 0.35 - v_i * 0.5 - v_u * 0.5))
 
-    # Emotions: Joy, Sorrow, Angry, Surprised
+    # Emotions: Joy, Frown, Eyebrows
+    joy = 0.0
+    frown_val = 0.0
+    smile_delta = 0.0
+    surprised_geo = 0.0
+    brow_furrow = 0.0
+
     if lms is not None and len(lms) >= 66 and float(lms[30, 0]) > 10.0 and float(lms[51, 0]) > 10.0:
         nose_h = max(1.0, float(lms[30, 0] - lms[27, 0]))
         corner_y = float(lms[48, 0] + lms[54, 0]) * 0.5
@@ -379,9 +340,7 @@ def map_openseeface_to_vrm(
         setattr(face, "brow_baseline", float(baseline))
         setattr(face, "brow_delta", float(delta))
 
-        # Dynamic threshold based on user sensitivity config:
-        # CRITICAL: If eyes are closing/blinking, Surprised MUST be 0.0!
-        if delta > thresh and not is_closing_eyes:
+        if delta > thresh:
             surprised_geo = _clamp(_smoothstep(thresh, thresh + 0.050, delta) * (brow_raise_gain / 2.0))
         else:
             surprised_geo = 0.0
@@ -405,12 +364,71 @@ def map_openseeface_to_vrm(
         setattr(face, "brow_baseline", 0.35)
         setattr(face, "brow_delta", 0.0)
 
+    # Eyes & Blinking
+    eye_blink = getattr(face, "eye_blink", None)
+    if eye_blink is not None and len(eye_blink) >= 2:
+        # OpenSeeFace eye_blink is 1.0 for open, 0.0 for closed
+        r_open = float(eye_blink[0])
+        l_open = float(eye_blink[1])
+        raw_blink_r = _clamp(1.0 - r_open)
+        raw_blink_l = _clamp(1.0 - l_open)
+    else:
+        raw_blink_r = 0.0
+        raw_blink_l = 0.0
+
+    # Smile & laughter squint suppression:
+    # Smiling (raised corners, wide mouth, or laugh) contracts orbicularis oculi ("Duchenne marker").
+    # This narrows the eye aperture naturally. We raise the blink deadzone and bilateral threshold
+    # so smiling with open eyes NEVER triggers accidental blinking.
+    is_smiling = (joy > 0.05) or (smile_delta > 0.02) or (wide_active > 0.08) or (mouth_wide_raw > 0.08 and mouth_open_raw > 0.06)
+    effective_blink_dz = blink_deadzone + (0.14 if is_smiling else 0.0)
+
+    # Apply snap threshold for clear, crisp blinking:
+    snap_closure = max(0.50, 1.0 - blink_snap_thresh)
+    bl_r = 0.0 if raw_blink_r < effective_blink_dz else (_clamp((raw_blink_r - effective_blink_dz) / (snap_closure - effective_blink_dz)) if raw_blink_r < snap_closure else 1.0)
+    bl_l = 0.0 if raw_blink_l < effective_blink_dz else (_clamp((raw_blink_l - effective_blink_dz) / (snap_closure - effective_blink_dz)) if raw_blink_l < snap_closure else 1.0)
+
+    # Distinguish natural synchronized blink vs deliberate single-eye wink:
+    diff_l = bl_l - bl_r
+    diff_r = bl_r - bl_l
+
+    # Single-eye wink conditions (one eye firmly closed, other eye open):
+    is_wink_l = bl_l >= 0.55 and bl_r < 0.20 and diff_l >= 0.35
+    is_wink_r = bl_r >= 0.55 and bl_l < 0.20 and diff_r >= 0.35
+
+    # Bilateral blink: requires BOTH eyes to close synchronously
+    # (average closure exceeds threshold AND both eyes have significant closure)
+    bl_avg = (bl_l + bl_r) * 0.5
+    min_bl = min(bl_l, bl_r)
+    bilateral_thresh = 0.52 if is_smiling else 0.42
+    is_bilateral = bl_avg >= bilateral_thresh and min_bl >= 0.25
+
+    if is_wink_l:
+        vrm_blink = 0.0
+        vrm_blink_l = 1.0
+        vrm_blink_r = 0.0
+    elif is_wink_r:
+        vrm_blink = 0.0
+        vrm_blink_l = 0.0
+        vrm_blink_r = 1.0
+    elif is_bilateral:
+        vrm_blink = _smoothstep(bilateral_thresh, 0.75, bl_avg)
+        vrm_blink_l = 0.0
+        vrm_blink_r = 0.0
+    else:
+        vrm_blink = 0.0
+        vrm_blink_l = 0.0
+        vrm_blink_r = 0.0
+
+    # Eyes closing/closed flag: prevents eyebrow distance calculation or Surprised from triggering when eyelids drop
+    is_closing_eyes = max(raw_blink_l, raw_blink_r) >= 0.35 or vrm_blink > 0.0 or vrm_blink_l > 0.0 or vrm_blink_r > 0.0
+
+    # Surprised expression gating: if eyelids are closing, Surprised must be 0.0
     if lms is not None and len(lms) >= 66 and float(lms[30, 0]) > 10.0 and float(lms[51, 0]) > 10.0:
         surprised = 0.0 if is_closing_eyes else surprised_geo
     else:
         brow_up_feat = (float(features.get("eyebrow_updown_l", 0.0)) + float(features.get("eyebrow_updown_r", 0.0))) / 2.0
-        surprised_feat = _clamp(_smoothstep(brow_raise_deadzone, brow_raise_deadzone + 0.10, brow_up_feat) * brow_raise_gain) if (brow_up_feat > brow_raise_deadzone and not is_closing_eyes) else 0.0
-        surprised = surprised_feat
+        surprised = _clamp(_smoothstep(brow_raise_deadzone, brow_raise_deadzone + 0.10, brow_up_feat) * brow_raise_gain) if (brow_up_feat > brow_raise_deadzone and not is_closing_eyes) else 0.0
 
     # Sorrow: mouth droop below baseline
     if frown_val > frown_deadzone:
@@ -432,34 +450,31 @@ def map_openseeface_to_vrm(
     elif open_val > 0.18 and joy < 0.45:
         joy = 0.0
 
-    # Winner-Takes-All Emotion Arbitration with Schmitt Trigger (Hysteresis):
-    # - Attack threshold (0.20): requires deliberate expression to engage, rejecting sensor noise.
-    # - Release threshold (0.14): once engaged, smoothly sustains down to 0.14 to eliminate boundary flickering.
-    raw_emotions = {
-        "joy": joy,
-        "surprised": surprised,
-        "sorrow": sorrow,
-        "angry": angry,
-    }
-    dominant_emo = max(raw_emotions, key=raw_emotions.get)
-    max_emo_val = raw_emotions[dominant_emo]
+    # Anatomical Zone-based Expression Arbitration:
+    # Eyebrows (Surprised, Angry) and Mouth (Joy, Sorrow) are independent facial zones.
+    # Joy should NEVER suppress Surprised or Angry!
 
-    prev_active_emo = getattr(tracker_instance, "active_emotion", None) if tracker_instance else getattr(face, "_active_emotion", None)
-    if prev_active_emo == dominant_emo:
-        has_active_emotion = max_emo_val >= 0.14
+    # 1. Mouth zone: Joy (smile) vs Sorrow (frown)
+    if joy > 0.15 and joy >= sorrow:
+        final_joy = joy
+        final_sorrow = 0.0
+    elif sorrow > 0.15:
+        final_sorrow = sorrow
+        final_joy = 0.0
     else:
-        has_active_emotion = max_emo_val >= 0.20
+        final_joy = 0.0
+        final_sorrow = 0.0
 
-    current_active_emo = dominant_emo if has_active_emotion else None
-    if tracker_instance is not None:
-        tracker_instance.active_emotion = current_active_emo
-    if hasattr(face, "__dict__"):
-        setattr(face, "_active_emotion", current_active_emo)
-
-    final_joy = max_emo_val if (dominant_emo == "joy" and has_active_emotion) else 0.0
-    final_surprised = max_emo_val if (dominant_emo == "surprised" and has_active_emotion) else 0.0
-    final_sorrow = max_emo_val if (dominant_emo == "sorrow" and has_active_emotion) else 0.0
-    final_angry = max_emo_val if (dominant_emo == "angry" and has_active_emotion) else 0.0
+    # 2. Eyebrow zone: Surprised (raised) vs Angry (furrowed)
+    if surprised > 0.15 and surprised >= angry:
+        final_surprised = surprised
+        final_angry = 0.0
+    elif angry > 0.15:
+        final_angry = angry
+        final_surprised = 0.0
+    else:
+        final_surprised = 0.0
+        final_angry = 0.0
 
     fun = _clamp(final_joy * 0.85)
 
@@ -826,6 +841,7 @@ def draw_openseeface_debug(
     mouth_a = float(vrm.get("a", 0.0))
     mouth_u = float(vrm.get("u", 0.0))
     mouth_o = float(vrm.get("o", 0.0))
+    blink_both = float(vrm.get("blink", 0.0))
     blink_l = float(vrm.get("blink_l", 0.0))
     blink_r = float(vrm.get("blink_r", 0.0))
     brow_ratio = float(telem.get("brow_ratio", getattr(face, "brow_ratio", 0.0) if face else 0.0))
@@ -837,7 +853,7 @@ def draw_openseeface_debug(
 
     line1 = f"Backend: OpenSeeFace ONNX | Head: Pitch:{pitch:+.1f}*  Yaw:{yaw:+.1f}*  Roll:{roll:+.1f}*"
     line2 = f"SmileLift: {smile_lift:+.3f} -> JOY: {joy:.2f} | Brow: {brow_ratio:.2f} (Base:{brow_base:.2f} D:{brow_delta:+.2f}) -> SURP: {surprised:.2f} ANGRY: {angry:.2f}"
-    line3 = f"Mouth: A={mouth_a:.2f} U={mouth_u:.2f} O={mouth_o:.2f} | Sorrow: {sorrow:.2f} | Blink: L={blink_l:.2f} R={blink_r:.2f} | Gaze: X={telem.get('gaze', {}).get('x', 0.0):+.2f} Y={telem.get('gaze', {}).get('y', 0.0):+.2f}"
+    line3 = f"Mouth: A={mouth_a:.2f} U={mouth_u:.2f} O={mouth_o:.2f} | Sorrow: {sorrow:.2f} | Blink: Both={blink_both:.2f} L={blink_l:.2f} R={blink_r:.2f} | Gaze: X={telem.get('gaze', {}).get('x', 0.0):+.2f} Y={telem.get('gaze', {}).get('y', 0.0):+.2f}"
 
     cv2.putText(canvas, line1, (12, h - 68), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
     info_col = (0, 0, 255) if angry > 0.05 else ((0, 165, 255) if surprised > 0.05 else ((0, 100, 255) if joy > 0.05 else (0, 255, 128)))

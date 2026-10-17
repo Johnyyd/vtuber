@@ -91,6 +91,7 @@
   // Blink State Machine
   let blinkState = "IDLE"; // IDLE, HOLD, COOLDOWN
   let blinkTimer = 0;
+  let holdStartTime = 0;
   let activeBlinkType = null;
 
   function init() {
@@ -755,30 +756,34 @@
     }
 
     // Blink State Machine (Runs every frame)
-    const isPhysicalBlink = targetMotion.vrm.blink >= 0.15 || targetMotion.vrm.blink_l >= 0.25 || targetMotion.vrm.blink_r >= 0.25;
+    const isPhysicalBlink = targetMotion.vrm.blink >= 0.35 || targetMotion.vrm.blink_l >= 0.28 || targetMotion.vrm.blink_r >= 0.28;
 
     if (blinkState === "IDLE") {
       if (isPhysicalBlink) {
         blinkState = "HOLD";
-        blinkTimer = now + 140; // Hold for at least 140ms
-        if (targetMotion.vrm.blink >= 0.15) activeBlinkType = "blink";
-        else if (targetMotion.vrm.blink_l >= 0.25) activeBlinkType = "blink_l";
+        holdStartTime = now;
+        blinkTimer = now + 120; // Hold for at least 120ms
+        if (targetMotion.vrm.blink >= 0.35) activeBlinkType = "blink";
+        else if (targetMotion.vrm.blink_l >= 0.28) activeBlinkType = "blink_l";
         else activeBlinkType = "blink_r";
       }
     } else if (blinkState === "HOLD") {
       if (isPhysicalBlink) {
         // If both eyes close while previously in single-eye wink, upgrade immediately to synchronized blink
-        if (activeBlinkType !== "blink" && targetMotion.vrm.blink >= 0.15) {
+        if (activeBlinkType !== "blink" && targetMotion.vrm.blink >= 0.35) {
           activeBlinkType = "blink";
         }
-        blinkTimer = Math.max(blinkTimer, now + 80);
+        // Cap the maximum hold duration at 260ms so smiling/squinting can NEVER freeze eyes shut!
+        if (now - holdStartTime < 260) {
+          blinkTimer = Math.max(blinkTimer, now + 60);
+        }
       }
-      if (now >= blinkTimer) {
+      if (now >= blinkTimer || (now - holdStartTime) >= 260) {
         blinkState = "COOLDOWN";
-        blinkTimer = now + 160; // Cooldown for 160ms
+        blinkTimer = now + 140; // Cooldown for 140ms
       }
     } else if (blinkState === "COOLDOWN") {
-      if (now >= blinkTimer && !isPhysicalBlink) {
+      if (now >= blinkTimer) {
         blinkState = "IDLE";
         activeBlinkType = null;
       }
@@ -853,41 +858,31 @@
     const eyeKeys = ["blink", "blink_l", "blink_r", "joy", "fun", "sorrow", "angry", "surprised"];
     const mouthKeys = ["a", "i", "u", "e", "o", "joy", "angry", "sorrow", "fun", "surprised"];
 
-    // Mutual Exclusivity for Facial Emotions: Only 1 dominant emotion allowed at any time
-    const emotionKeys = ["joy", "surprised", "sorrow", "angry", "fun"];
-    let dominantEmotion = null;
-    let maxEmotionVal = 0.0;
-    for (const emo of emotionKeys) {
-      const val = targetMotion.vrm[emo] || 0.0;
-      if (val > maxEmotionVal) {
-        maxEmotionVal = val;
-        dominantEmotion = emo;
+    // Zone-based Mutual Exclusivity for Facial Expressions:
+    // Eyebrows (Surprised, Angry) and Mouth (Joy, Sorrow) are independent anatomical zones.
+    // 1. Mouth zone: Joy (smile) vs Sorrow (frown)
+    const joyVal = targetMotion.vrm.joy || 0.0;
+    const sorrowVal = targetMotion.vrm.sorrow || 0.0;
+    if (joyVal > 0.0 && sorrowVal > 0.0) {
+      if (joyVal >= sorrowVal) {
+        targetMotion.vrm.sorrow = 0.0;
+      } else {
+        targetMotion.vrm.joy = 0.0;
       }
     }
+
+    // 2. Eyebrow zone: Surprised (raised) vs Angry (furrowed)
+    const surprisedVal = targetMotion.vrm.surprised || 0.0;
+    const angryVal = targetMotion.vrm.angry || 0.0;
+    if (surprisedVal > 0.0 && angryVal > 0.0) {
+      if (surprisedVal >= angryVal) {
+        targetMotion.vrm.angry = 0.0;
+      } else {
+        targetMotion.vrm.surprised = 0.0;
+      }
+    }
+
     const vowelKeys = ["a", "i", "u", "e", "o"];
-
-    // Deliberate emotion detection threshold (>= 0.25)
-    const hasActiveEmotion = maxEmotionVal >= 0.25;
-
-    // Zero out all conflicting non-dominant emotions
-    for (const emo of emotionKeys) {
-      if (emo !== dominantEmotion || !hasActiveEmotion) {
-        targetMotion.vrm[emo] = 0.0;
-        currentMotion.vrm[emo] = 0.0;
-      }
-    }
-
-    // When user is speaking (any vowel > 0.05), speech vowels drive the mouth in real time!
-    // When not speaking (!isSpeaking), deliberate emotions (maxEmotionVal >= 0.50) shape the mouth.
-    const isSpeaking = vowelKeys.some(k => (targetMotion.vrm[k] || 0) > 0.05);
-    const shouldOverrideVowels = hasActiveEmotion && !isSpeaking && (maxEmotionVal >= 0.50);
-
-    if (shouldOverrideVowels) {
-      for (const k of vowelKeys) {
-        targetMotion.vrm[k] = 0.0;
-      }
-      targetMotion.vrm["neutral"] = 0.0;
-    }
 
     for (const [key, rawTargetVal] of Object.entries(targetMotion.vrm)) {
       const isBlink = (key === "blink" || key === "blink_l" || key === "blink_r");

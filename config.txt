@@ -6,7 +6,7 @@
 
 [GENERAL]
 # Chi so camera webcam (0: webcam mac dinh, 1, 2: webcam roi hoac DroidCam...)
-camera_id = 1
+camera_id = 0
 
 # Mo hinh AI nhan dien khuon mat (mediapipe hoac openseeface)
 # - mediapipe: Google MediaPipe (Mac dinh - Sieu nhe, muot tren moi may)

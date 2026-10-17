@@ -649,9 +649,12 @@ def map_mediapipe_to_vrm(
         vrm["blink"] = 0.0
         vrm["blink_l"] = 0.0
         vrm["blink_r"] = 1.0
-    elif max(bl_l, bl_r) >= 0.18:
-        # Natural synchronized blink of both eyes -> snap to 1.0 full closure
-        vrm["blink"] = 1.0
+    elif (bl_l + bl_r) * 0.5 >= 0.42 and min(bl_l, bl_r) >= 0.22:
+        # Natural synchronized blink of both eyes - smooth closure curve
+        blink_mag = (bl_l + bl_r) * 0.5
+        # Smoothstep from 0.40 to 0.70 for natural eyelid closure
+        t_blink = min(1.0, max(0.0, (blink_mag - 0.40) / 0.25))
+        vrm["blink"] = float(t_blink * t_blink * (3.0 - 2.0 * t_blink))
         vrm["blink_l"] = 0.0
         vrm["blink_r"] = 0.0
     else:
@@ -724,39 +727,30 @@ def map_mediapipe_to_vrm(
     else:
         raw_sorrow = 0.0
 
-    # Winner-Takes-All Emotion Arbitration:
-    # Only 1 dominant emotion can be active at any given moment to prevent mesh tearing and overlapping
-    emotions = {
-        "joy": raw_joy,
-        "surprised": raw_surprised,
-        "sorrow": raw_sorrow,
-        "angry": raw_angry,
-    }
-    dominant_emo = max(emotions, key=emotions.get)
-    max_emo_val = emotions[dominant_emo]
+    # Anatomical Zone-based Expression Arbitration:
+    # 1. Mouth zone: Joy (smile) vs Sorrow (frown)
+    if raw_joy > 0.18 and raw_joy >= raw_sorrow:
+        vrm["joy"] = raw_joy
+        vrm["sorrow"] = 0.0
+    elif raw_sorrow > 0.18:
+        vrm["sorrow"] = raw_sorrow
+        vrm["joy"] = 0.0
+    else:
+        vrm["joy"] = 0.0
+        vrm["sorrow"] = 0.0
 
-    # Deliberate emotion detection threshold (>= 0.22)
-    has_active_emotion = max_emo_val >= 0.22
+    # 2. Eyebrow zone: Surprised (raised) vs Angry (furrowed)
+    if raw_surprised > 0.16 and raw_surprised >= raw_angry:
+        vrm["surprised"] = raw_surprised
+        vrm["angry"] = 0.0
+    elif raw_angry > 0.16:
+        vrm["angry"] = raw_angry
+        vrm["surprised"] = 0.0
+    else:
+        vrm["surprised"] = 0.0
+        vrm["angry"] = 0.0
 
-    for emo in ["joy", "surprised", "sorrow", "angry"]:
-        vrm[emo] = max_emo_val if (emo == dominant_emo and has_active_emotion) else 0.0
-
-    vrm["fun"] = 0.0
-
-    # If an emotion is confirmed active:
-    # Strong deliberate emotions (max_emo_val >= 0.60) override mouth & blinks for dedicated poses.
-    # When actively speaking (raw_speech >= 0.08 or i/e/u/o active), speech vowels drive the mouth in real time!
-    is_actively_speaking = raw_speech >= 0.08 or vrm["i"] >= 0.08 or vrm["e"] >= 0.08 or vrm["u"] >= 0.08 or vrm["o"] >= 0.08
-    if has_active_emotion and (max_emo_val >= 0.60 or not is_actively_speaking):
-        vrm["a"] = 0.0
-        vrm["i"] = 0.0
-        vrm["u"] = 0.0
-        vrm["e"] = 0.0
-        vrm["o"] = 0.0
-        vrm["blink"] = 0.0
-        vrm["blink_l"] = 0.0
-        vrm["blink_r"] = 0.0
-        vrm["neutral"] = 0.0
+    vrm["fun"] = _clamp(vrm["joy"] * 0.85)
 
     # 4. Gaze Direction (VRM Blendshape fallback)
     gaze = compute_iris_gaze(landmarks, mp_blendshapes)

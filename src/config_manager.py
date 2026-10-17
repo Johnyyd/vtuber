@@ -56,6 +56,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "pitch_offset_deg": 18.0,
     "filter_min_cutoff": 0.8,
     "filter_beta": 0.02,
+    "eye_pitch_offset": -0.14,
 }
 
 

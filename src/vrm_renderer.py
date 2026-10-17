@@ -162,6 +162,7 @@ class TrackingWorker(QThread):
         self.hair_gravity = float(self.config.get("hair_gravity", 1.60))
         self.hair_stiffness = float(self.config.get("hair_stiffness", 0.38))
         self.hair_drag = float(self.config.get("hair_drag", 0.58))
+        self.eye_pitch_offset = float(self.config.get("eye_pitch_offset", -0.14))
         self.backend = str(self.config.get("tracker_backend", "mediapipe")).strip().lower()
         self.tracker = None
 
@@ -254,6 +255,7 @@ class TrackingWorker(QThread):
                             "hair_gravity": self.hair_gravity,
                             "hair_stiffness": self.hair_stiffness,
                             "hair_drag": self.hair_drag,
+                            "eye_pitch_offset": self.eye_pitch_offset,
                         }
                         packet = format_motion_packet(
                             vrc=vrc,
@@ -423,6 +425,7 @@ class TrackingWorker(QThread):
                         "hair_gravity": self.hair_gravity,
                         "hair_stiffness": self.hair_stiffness,
                         "hair_drag": self.hair_drag,
+                        "eye_pitch_offset": self.eye_pitch_offset,
                     }
                     packet = format_motion_packet(
                         vrc=vrc,

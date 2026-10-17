@@ -73,6 +73,7 @@
       hair_gravity: 0.15,
       hair_stiffness: 0.95,
       hair_drag: 0.50,
+      eye_pitch_offset: -0.14,
     },
   };
 
@@ -595,6 +596,9 @@
       if (typeof data.body.hair_drag === "number") {
         targetMotion.body.hair_drag = data.body.hair_drag;
       }
+      if (typeof data.body.eye_pitch_offset === "number") {
+        targetMotion.body.eye_pitch_offset = data.body.eye_pitch_offset;
+      }
       if (typeof data.body.backend === "string") {
         const hudBackend = document.getElementById("hud-backend");
         if (hudBackend && hudBackend.innerText !== data.body.backend) {
@@ -673,6 +677,13 @@
     // Smooth LERP for body parameters
     currentMotion.body.sway_gain += (targetMotion.body.sway_gain - currentMotion.body.sway_gain) * 0.1;
     currentMotion.body.breath_gain += (targetMotion.body.breath_gain - currentMotion.body.breath_gain) * 0.1;
+    if (typeof targetMotion.body.eye_pitch_offset === "number") {
+      if (typeof currentMotion.body.eye_pitch_offset !== "number") {
+        currentMotion.body.eye_pitch_offset = targetMotion.body.eye_pitch_offset;
+      } else {
+        currentMotion.body.eye_pitch_offset += (targetMotion.body.eye_pitch_offset - currentMotion.body.eye_pitch_offset) * 0.1;
+      }
+    }
 
     const swayGain = currentMotion.body.sway_gain;
     const breathGain = currentMotion.body.breath_gain;
@@ -830,7 +841,9 @@
     // Rotate eyeball bones: max ~0.30 radians (~17 degrees)
     // Eye pitch offset lowers the resting pupil position so it is comfortably centered
     const maxEyeAngle = 0.30;
-    const eyePitchOffset = -0.07; // Downward pitch offset (~4 deg) to lower the pupil to natural height
+    const eyePitchOffset = typeof currentMotion.body.eye_pitch_offset === "number"
+      ? currentMotion.body.eye_pitch_offset
+      : -0.14; // Default lowered pitch offset (~8 deg down) for natural eye contact
 
     // When eyes are closed/closing, smoothly return eyeballs to resting center
     // This completely prevents frozen tilted eyeball bones twisting the eyelid mesh!

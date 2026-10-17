@@ -408,7 +408,7 @@ class FaceInfo():
         return pts_3d
 
     def adjust_3d(self):
-        if self.conf < 0.4 or self.pnp_error > 300:
+        if self.euler is None or self.conf < 0.4 or self.pnp_error > 300:
             return
 
         if self.tracker.model_type != -1 and not self.tracker.static_model:

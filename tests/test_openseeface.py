@@ -297,6 +297,67 @@ class TestOpenSeeFaceMapping(unittest.TestCase):
         out_rest = feat.update(0.20)
         self.assertLess(out_rest, 0.20, "Feature must decay back down when returning to rest")
 
+    def test_openseeface_neutral_face_does_not_trigger_joy(self):
+        try:
+            from openseeface_tracker import map_openseeface_to_vrm
+        except ImportError:
+            from src.openseeface_tracker import map_openseeface_to_vrm
+
+        # Real tracking face with neutral mouth (corners level with/slightly below center)
+        class RealisticFace:
+            def __init__(self):
+                self.lms = np.zeros((68, 3), dtype=np.float32)
+                # Nose bridge at Y=270, tip at Y=310 (nose_h = 40)
+                self.lms[27] = [270.0, 315.0, 1.0]
+                self.lms[30] = [310.0, 315.0, 1.0]
+                # Mouth center at Y=330 (outer upper 51: Y=326, outer lower 57: Y=334)
+                self.lms[51] = [326.0, 315.0, 1.0]
+                self.lms[57] = [334.0, 315.0, 1.0]
+                # Inner lips touching
+                self.lms[59] = [329.0, 310.0, 1.0]
+                self.lms[60] = [329.0, 315.0, 1.0]
+                self.lms[61] = [329.0, 320.0, 1.0]
+                self.lms[63] = [331.0, 320.0, 1.0]
+                self.lms[64] = [331.0, 315.0, 1.0]
+                self.lms[65] = [331.0, 310.0, 1.0]
+                # Neutral corners at Y=332 (2px below center -> smile_lift = -0.05)
+                self.lms[48] = [332.0, 290.0, 1.0]
+                self.lms[54] = [332.0, 340.0, 1.0]
+                self.eye_blink = [1.0, 1.0]
+                # Feature extractor had small noise
+                self.current_features = {
+                    "mouth_open": 0.0,
+                    "mouth_wide": 0.0,
+                    "mouth_corner_updown_l": 0.15,
+                    "mouth_corner_updown_r": 0.15,
+                }
+
+        face = RealisticFace()
+        vrm = map_openseeface_to_vrm(face)
+        self.assertEqual(vrm["joy"], 0.0, "Neutral face with level mouth corners must have Joy = 0.0")
+
+        # Now simulate actual smile: corners pulled UP to Y=322 (8px above center -> smile_lift = +0.20)
+        face.lms[48, 0] = 322.0
+        face.lms[54, 0] = 322.0
+        vrm_smile = map_openseeface_to_vrm(face)
+        self.assertGreater(vrm_smile["joy"], 0.40, "Smiling face with elevated corners must trigger Joy")
+
+    def test_openseeface_vrc_none_blink_guard(self):
+        try:
+            from openseeface_tracker import map_openseeface_to_vrc
+        except ImportError:
+            from src.openseeface_tracker import map_openseeface_to_vrc
+
+        class FaceWithNoneBlink:
+            def __init__(self):
+                self.eye_blink = None
+                self.current_features = {}
+
+        face = FaceWithNoneBlink()
+        # Must not raise TypeError: 'NoneType' object is not subscriptable
+        vrc = map_openseeface_to_vrc(face)
+        self.assertEqual(vrc["vrc_blink"], 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

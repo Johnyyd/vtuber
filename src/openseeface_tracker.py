@@ -174,12 +174,36 @@ def map_openseeface_to_vrm(face: Any, config: Optional[dict] = None) -> Dict[str
             v_o = _clamp(max(0.0, v_o - v_u * 0.5))
 
     # Emotions
-    smile_l = float(features.get("mouth_corner_updown_l", 0.0))
-    smile_r = float(features.get("mouth_corner_updown_r", 0.0))
-    avg_smile = max(0.0, (smile_l + smile_r) / 2.0)
-    joy = _clamp((avg_smile - smile_deadzone) * smile_gain) if avg_smile > smile_deadzone else 0.0
+    # Physical Landmark Ground Truth for Smile (Joy):
+    # In OpenSeeFace 68 landmarks:
+    # 48 is right mouth corner, 54 is left mouth corner
+    # 51 is upper lip center, 57 is lower lip center
+    # In image coordinates, Y points downwards.
+    # When smiling, corners elevate UPWARDS (smaller Y) relative to lip center.
+    if lms is not None and len(lms) >= 66 and float(lms[30, 0]) > 10.0 and float(lms[51, 0]) > 10.0:
+        nose_h = max(1.0, float(lms[30, 0] - lms[27, 0]))
+        corner_y = float(lms[48, 0] + lms[54, 0]) * 0.5
+        center_y = float(lms[51, 0] + lms[57, 0]) * 0.5
+        smile_lift = (center_y - corner_y) / nose_h
 
-    frown_val = max(0.0, -(smile_l + smile_r) / 2.0)
+        # Resting face has corners level or slightly below center (smile_lift <= 0.015)
+        # Genuine deliberate smile lifts corners upwards above center (smile_lift > 0.015)
+        if smile_lift > 0.015:
+            # Scale proportionally: 0.015 to 0.08 maps to 0.0 to 1.0
+            joy = _clamp((smile_lift - 0.015) / 0.065 * (smile_gain / 2.0))
+        else:
+            joy = 0.0
+
+        if smile_lift < -0.06:
+            frown_val = _clamp((-0.06 - smile_lift) / 0.06)
+        else:
+            frown_val = 0.0
+    else:
+        smile_l = float(features.get("mouth_corner_updown_l", 0.0))
+        smile_r = float(features.get("mouth_corner_updown_r", 0.0))
+        avg_smile = max(0.0, (smile_l + smile_r) / 2.0)
+        joy = _clamp((avg_smile - smile_deadzone) * smile_gain) if avg_smile > smile_deadzone else 0.0
+        frown_val = max(0.0, -(smile_l + smile_r) / 2.0)
     steepness = (float(features.get("eyebrow_steepness_l", 0.0)) + float(features.get("eyebrow_steepness_r", 0.0))) / 2.0
     sorrow = _clamp((frown_val - frown_deadzone) * frown_gain + max(0.0, steepness) * 0.6)
 
@@ -220,8 +244,11 @@ def map_openseeface_to_vrc(face: Any) -> Dict[str, float]:
     Map OpenSeeFace features to 16 standard VRChat viseme morph targets.
     """
     features = getattr(face, "current_features", {}) or {}
-    eye_blink = getattr(face, "eye_blink", [1.0, 1.0])
-    blink = _clamp(1.0 - min(float(eye_blink[0]), float(eye_blink[1])))
+    eye_blink = getattr(face, "eye_blink", None)
+    if eye_blink is not None and len(eye_blink) >= 2:
+        blink = _clamp(1.0 - min(float(eye_blink[0]), float(eye_blink[1])))
+    else:
+        blink = 0.0
 
     mouth_open = float(features.get("mouth_open", 0.0))
     mouth_wide = float(features.get("mouth_wide", 0.0))

@@ -40,14 +40,17 @@ from landmark_mapping import (
     map_mediapipe_to_vrm,
     compute_head_pose,
     compute_iris_gaze,
+    draw_mediapipe_debug,
     OneEuroFilter,
     VRC_TARGETS,
     VRM_BLENDSHAPES,
 )
 try:
-    from openseeface_tracker import OpenSeeFaceTracker
+    from openseeface_tracker import OpenSeeFaceTracker, draw_openseeface_debug
+    from debug_window import TrackingDebugWindow
 except ImportError:
-    from src.openseeface_tracker import OpenSeeFaceTracker
+    from src.openseeface_tracker import OpenSeeFaceTracker, draw_openseeface_debug
+    from src.debug_window import TrackingDebugWindow
 
 
 
@@ -134,12 +137,17 @@ class TrackingWorker(QThread):
     """
     motion_ready = pyqtSignal(dict)
     status_changed = pyqtSignal(str)
+    debug_frame_ready = pyqtSignal(np.ndarray, dict)
 
     def __init__(self, camera_id: int = 0, config: Optional[Dict[str, Any]] = None):
         super().__init__()
         self.camera_id = camera_id
         self.config = config or {}
         self._running = True
+        self.debug_mode = bool(self.config.get("debug_mode", False))
+        self.fps = 0.0
+        self._fps_counter = 0
+        self._fps_last_t = time.time()
         # OneEuroFilters for smooth, responsive head rotation and iris gaze without micro-jitter
         cutoff = float(self.config.get("filter_min_cutoff", 0.8))
         beta = float(self.config.get("filter_beta", 0.015))
@@ -155,6 +163,9 @@ class TrackingWorker(QThread):
         self.hair_stiffness = float(self.config.get("hair_stiffness", 0.38))
         self.hair_drag = float(self.config.get("hair_drag", 0.58))
         self.backend = str(self.config.get("tracker_backend", "mediapipe")).strip().lower()
+
+    def set_debug_mode(self, enabled: bool):
+        self.debug_mode = bool(enabled)
 
     def run(self):
         backend_name = "OpenSeeFace ONNX" if self.backend == "openseeface" else "Google MediaPipe"
@@ -262,6 +273,32 @@ class TrackingWorker(QThread):
                         }
                         packet = format_motion_packet(None, None, None, None, body=body_params)
                         self.motion_ready.emit(packet)
+
+                    # Calculate FPS & emit debug frame if debug mode active
+                    self._fps_counter += 1
+                    t_loop = time.time()
+                    if t_loop - self._fps_last_t >= 1.0:
+                        self.fps = self._fps_counter / (t_loop - self._fps_last_t)
+                        self._fps_counter = 0
+                        self._fps_last_t = t_loop
+
+                    if self.debug_mode:
+                        smile_val = getattr(tracker.last_face, "smile_lift", 0.0) if (tracked is not None and tracker.last_face) else 0.0
+                        telemetry = {
+                            "backend": "OpenSeeFace ONNX",
+                            "fps": self.fps,
+                            "rotation": filtered_rotation if tracked is not None else {"pitch": 0.0, "yaw": 0.0, "roll": 0.0},
+                            "gaze": filtered_gaze if tracked is not None else {"x": 0.0, "y": 0.0},
+                            "smile_lift": smile_val,
+                            "vrm_shapes": vrm_shapes if tracked is not None else {},
+                        }
+                        debug_frame = draw_openseeface_debug(
+                            frame,
+                            tracker.last_face if tracked is not None else None,
+                            vrm_shapes if tracked is not None else {},
+                            telemetry,
+                        )
+                        self.debug_frame_ready.emit(debug_frame, telemetry)
 
                 except Exception as e:
                     print(f"[TrackingWorker Warning] Transient frame error: {e}")
@@ -399,6 +436,32 @@ class TrackingWorker(QThread):
                     packet = format_motion_packet(None, None, None, None, body=body_params)
                     self.motion_ready.emit(packet)
 
+                # Calculate FPS & emit debug frame if debug mode active
+                self._fps_counter += 1
+                t_loop = time.time()
+                if t_loop - self._fps_last_t >= 1.0:
+                    self.fps = self._fps_counter / (t_loop - self._fps_last_t)
+                    self._fps_counter = 0
+                    self._fps_last_t = t_loop
+
+                if self.debug_mode:
+                    has_face = bool(mp_blendshapes and (lm_list or matrix is not None))
+                    telemetry = {
+                        "backend": "Google MediaPipe",
+                        "fps": self.fps,
+                        "rotation": filtered_rotation if has_face else {"pitch": 0.0, "yaw": 0.0, "roll": 0.0},
+                        "gaze": filtered_gaze if has_face else {"x": 0.0, "y": 0.0},
+                        "smile_lift": 0.0,
+                        "vrm_shapes": vrm_shapes if has_face else {},
+                    }
+                    debug_frame = draw_mediapipe_debug(
+                        frame,
+                        landmarks if has_face else None,
+                        vrm_shapes if has_face else {},
+                        telemetry,
+                    )
+                    self.debug_frame_ready.emit(debug_frame, telemetry)
+
             except Exception as e:
                 # Catch any transient frame processing exceptions without terminating tracking thread
                 print(f"[TrackingWorker Warning] Transient frame error: {e}")
@@ -469,6 +532,30 @@ class VTuberWindow(QMainWindow):
         self.worker.motion_ready.connect(self.on_motion_ready)
         self.worker.start()
 
+        # Debug Window setup
+        self.debug_window: Optional[TrackingDebugWindow] = None
+        self.worker.debug_frame_ready.connect(self.on_debug_frame)
+        if self.config.get("debug_mode", False):
+            self.toggle_debug_window()
+
+    def on_debug_frame(self, frame: np.ndarray, telemetry: dict):
+        """Receive processed debug frame and update debug window if visible."""
+        if self.debug_window is not None and self.debug_window.isVisible():
+            self.debug_window.update_debug_view(frame, telemetry)
+
+    def toggle_debug_window(self):
+        """Toggle visibility of tracking telemetry & video debug window."""
+        if self.debug_window is None:
+            self.debug_window = TrackingDebugWindow()
+        if self.debug_window.isVisible():
+            self.debug_window.hide()
+            self.worker.set_debug_mode(False)
+        else:
+            self.debug_window.show()
+            self.debug_window.raise_()
+            self.debug_window.activateWindow()
+            self.worker.set_debug_mode(True)
+
     def resizeEvent(self, event):
         """Ensure the drag overlay covers the window except bottom controls, and notify web view."""
         new_size = event.size()
@@ -512,14 +599,19 @@ class VTuberWindow(QMainWindow):
         self.web_view.page().runJavaScript(js_code)
 
     def keyPressEvent(self, event):
-        """Allow quick exit via Esc or Q key."""
-        if event.key() in (Qt.Key.Key_Escape, Qt.Key.Key_Q):
+        """Allow quick exit via Esc or Q key, and toggle debug window via D key."""
+        if event.key() == Qt.Key.Key_D:
+            self.toggle_debug_window()
+            event.accept()
+        elif event.key() in (Qt.Key.Key_Escape, Qt.Key.Key_Q):
             self.close()
         else:
             super().keyPressEvent(event)
 
     def closeEvent(self, event):
-        """Clean shutdown of background tracking thread."""
+        """Clean shutdown of background tracking thread and child debug window."""
+        if self.debug_window is not None:
+            self.debug_window.close()
         if hasattr(self, "worker") and self.worker.isRunning():
             self.worker.stop()
         event.accept()

@@ -58,6 +58,13 @@ def parse_args(argv=None):
         default=False,
         help="Skip configuration panel and launch avatar directly",
     )
+    parser.add_argument(
+        "--debug",
+        "-d",
+        action="store_true",
+        default=False,
+        help="Enable tracking debug mode with facial mesh & telemetry window",
+    )
     return parser.parse_args(argv)
 
 
@@ -79,6 +86,8 @@ def main():
         cfg["window_width"] = args.width
     if any(a == "--height" or a.startswith("--height=") for a in raw_args):
         cfg["window_height"] = args.height
+    if args.debug or any(a in ("--debug", "-d") for a in raw_args):
+        cfg["debug_mode"] = True
 
     # 2. Check if configuration panel should be displayed
     should_show_launcher = (args.show_launcher or cfg.get("show_launcher", True)) and not args.no_launcher

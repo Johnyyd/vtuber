@@ -20,6 +20,9 @@ window_height = 600
 # Luon hien thi bang tuy chinh thong so truoc khi chay (True / False)
 show_launcher = true
 
+# Bat che do debug hien thi webcam va luoi diem (True / False)
+debug_mode = false
+
 
 [TRACKING_SENSITIVITY]
 # Nụ cười (Joy):

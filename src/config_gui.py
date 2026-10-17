@@ -330,11 +330,13 @@ class ConfigLauncherDialog(QDialog):
 
         layout.addWidget(group_win)
 
-        # Launcher startup toggle
-        group_start = QGroupBox("Khởi chạy ứng dụng")
+        # Launcher startup toggle & Debug Mode
+        group_start = QGroupBox("Khởi chạy & Gỡ lỗi (Startup & Debug)")
         v_start = QVBoxLayout(group_start)
         self.chk_show_launcher = QCheckBox("Luôn hiển thị bảng cài đặt này mỗi khi mở ứng dụng")
+        self.chk_debug_mode = QCheckBox("Bật chế độ Debug (hiển thị webcam, lưới 68 điểm và telemetry)")
         v_start.addWidget(self.chk_show_launcher)
+        v_start.addWidget(self.chk_debug_mode)
         layout.addWidget(group_start)
 
         layout.addStretch()
@@ -596,6 +598,7 @@ class ConfigLauncherDialog(QDialog):
         else: self.combo_presets.setCurrentIndex(4)
 
         self.chk_show_launcher.setChecked(bool(cfg.get("show_launcher", True)))
+        self.chk_debug_mode.setChecked(bool(cfg.get("debug_mode", False)))
 
         self.spin_smile_dz.setValue(float(cfg.get("smile_deadzone", 0.10)))
         self.spin_smile_gain.setValue(float(cfg.get("smile_gain", 2.8)))
@@ -633,6 +636,7 @@ class ConfigLauncherDialog(QDialog):
             "window_width": self.spin_width.value(),
             "window_height": self.spin_height.value(),
             "show_launcher": self.chk_show_launcher.isChecked(),
+            "debug_mode": self.chk_debug_mode.isChecked(),
 
             "smile_deadzone": self.spin_smile_dz.value(),
             "smile_gain": self.spin_smile_gain.value(),

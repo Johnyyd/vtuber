@@ -25,6 +25,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "window_width": 800,
     "window_height": 600,
     "show_launcher": True,
+    "debug_mode": False,
 
     # [TRACKING_SENSITIVITY]
     "smile_deadzone": 0.10,
@@ -85,6 +86,9 @@ window_height = {cfg['window_height']}
 
 # Luon hien thi bang tuy chinh thong so truoc khi chay (True / False)
 show_launcher = {str(cfg['show_launcher']).lower()}
+
+# Bat che do go loi hien thi webcam va luoi diem (True / False)
+debug_mode = {str(cfg.get('debug_mode', False)).lower()}
 
 
 [TRACKING_SENSITIVITY]
@@ -183,6 +187,7 @@ def validate_config(config: Dict[str, Any]) -> Dict[str, Any]:
         validated["window_width"] = max(400, int(validated["window_width"]))
         validated["window_height"] = max(300, int(validated["window_height"]))
         validated["show_launcher"] = bool(validated["show_launcher"])
+        validated["debug_mode"] = bool(validated.get("debug_mode", False))
 
         for float_key in [
             "smile_deadzone", "smile_gain", "mouth_open_deadzone", "mouth_open_gain",
@@ -250,6 +255,7 @@ def load_config(file_path: str = DEFAULT_CONFIG_PATH) -> Dict[str, Any]:
     config["window_width"] = get_int("GENERAL", "window_width", config["window_width"])
     config["window_height"] = get_int("GENERAL", "window_height", config["window_height"])
     config["show_launcher"] = get_bool("GENERAL", "show_launcher", config["show_launcher"])
+    config["debug_mode"] = get_bool("GENERAL", "debug_mode", config["debug_mode"])
 
     # Parse TRACKING_SENSITIVITY
     config["smile_deadzone"] = get_float("TRACKING_SENSITIVITY", "smile_deadzone", config["smile_deadzone"])

@@ -10,6 +10,7 @@ import sys
 import urllib.request
 from typing import Dict, Tuple, Optional, Any
 import numpy as np
+import cv2
 
 try:
     from .openseeface.tracker import Tracker
@@ -185,6 +186,7 @@ def map_openseeface_to_vrm(face: Any, config: Optional[dict] = None) -> Dict[str
         corner_y = float(lms[48, 0] + lms[54, 0]) * 0.5
         center_y = float(lms[51, 0] + lms[57, 0]) * 0.5
         smile_lift = (center_y - corner_y) / nose_h
+        setattr(face, "smile_lift", float(smile_lift))
 
         # Resting face has corners level or slightly below center (smile_lift <= 0.015)
         # Genuine deliberate smile lifts corners upwards above center (smile_lift > 0.015)
@@ -202,6 +204,7 @@ def map_openseeface_to_vrm(face: Any, config: Optional[dict] = None) -> Dict[str
         smile_l = float(features.get("mouth_corner_updown_l", 0.0))
         smile_r = float(features.get("mouth_corner_updown_r", 0.0))
         avg_smile = max(0.0, (smile_l + smile_r) / 2.0)
+        setattr(face, "smile_lift", float(avg_smile))
         joy = _clamp((avg_smile - smile_deadzone) * smile_gain) if avg_smile > smile_deadzone else 0.0
         frown_val = max(0.0, -(smile_l + smile_r) / 2.0)
     steepness = (float(features.get("eyebrow_steepness_l", 0.0)) + float(features.get("eyebrow_steepness_r", 0.0))) / 2.0
@@ -436,6 +439,131 @@ def extract_iris_gaze(face: Any) -> Dict[str, float]:
     return {"x": 0.0, "y": 0.0}
 
 
+def draw_openseeface_debug(
+    frame: np.ndarray,
+    face: Any,
+    vrm_shapes: Optional[Dict[str, float]] = None,
+    telemetry: Optional[Dict[str, Any]] = None,
+) -> np.ndarray:
+    """
+    Render 68 facial landmarks, contour meshes, pupil gaze, and HUD telemetry on frame.
+    Returns a new annotated BGR image.
+    """
+    if frame is None or frame.size == 0:
+        return np.zeros((480, 640, 3), dtype=np.uint8)
+
+    canvas = frame.copy()
+    h, w = canvas.shape[:2]
+    vrm = vrm_shapes or {}
+    telem = telemetry or {}
+
+    JAW_LINE = list(range(0, 17))
+    RIGHT_EYEBROW = list(range(17, 22))
+    LEFT_EYEBROW = list(range(22, 27))
+    NOSE_BRIDGE = list(range(27, 31))
+    NOSE_BASE = list(range(31, 36))
+    RIGHT_EYE = list(range(36, 42)) + [36]
+    LEFT_EYE = list(range(42, 48)) + [42]
+    OUTER_LIPS = list(range(48, 60)) + [48]
+    INNER_LIPS = list(range(60, 68)) + [60]
+
+    lms = getattr(face, "lms", None) if face is not None else None
+    if lms is not None and len(lms) >= 68:
+        pts = {}
+        for idx in range(len(lms)):
+            px = int(round(float(lms[idx, 1])))
+            py = int(round(float(lms[idx, 0])))
+            pts[idx] = (px, py)
+
+        def _draw_contour(indices, color, thickness=1):
+            for i in range(len(indices) - 1):
+                p1 = pts.get(indices[i])
+                p2 = pts.get(indices[i + 1])
+                if p1 and p2:
+                    cv2.line(canvas, p1, p2, color, thickness, cv2.LINE_AA)
+
+        # 1. Draw contour segments
+        _draw_contour(JAW_LINE, (255, 200, 0), 1)
+        _draw_contour(RIGHT_EYEBROW, (0, 255, 128), 2)
+        _draw_contour(LEFT_EYEBROW, (0, 255, 128), 2)
+        _draw_contour(NOSE_BRIDGE, (0, 255, 255), 1)
+        _draw_contour(NOSE_BASE, (0, 255, 255), 1)
+        _draw_contour(RIGHT_EYE, (255, 255, 0), 1)
+        _draw_contour(LEFT_EYE, (255, 255, 0), 1)
+        _draw_contour(OUTER_LIPS, (200, 100, 255), 2)
+        _draw_contour(INNER_LIPS, (150, 50, 255), 1)
+
+        # 2. Draw all landmark points as small dots
+        for idx, (px, py) in pts.items():
+            if 0 <= px < w and 0 <= py < h:
+                cv2.circle(canvas, (px, py), 2, (0, 255, 0), -1, cv2.LINE_AA)
+
+        # 3. Highlight key tracking anchors
+        joy_val = float(vrm.get("joy", 0.0))
+        corner_color = (0, 0, 255) if joy_val > 0.05 else (0, 165, 255)
+        for c_idx in (48, 54):
+            if c_idx in pts:
+                cv2.circle(canvas, pts[c_idx], 4, corner_color, -1, cv2.LINE_AA)
+        for m_idx in (51, 57):
+            if m_idx in pts:
+                cv2.circle(canvas, pts[m_idx], 3, (255, 255, 0), -1, cv2.LINE_AA)
+
+        # 4. Highlight pupils (66: right, 67: left) & Gaze vector
+        for pupil_idx in (66, 67):
+            if pupil_idx in pts:
+                cv2.circle(canvas, pts[pupil_idx], 4, (0, 0, 255), -1, cv2.LINE_AA)
+                cv2.circle(canvas, pts[pupil_idx], 2, (0, 255, 255), -1, cv2.LINE_AA)
+
+        gaze = telem.get("gaze", {})
+        gx = float(gaze.get("x", 0.0))
+        gy = float(gaze.get("y", 0.0))
+        if 66 in pts:
+            cv2.line(canvas, pts[66], (int(pts[66][0] + gx * 25), int(pts[66][1] + gy * 25)), (0, 0, 255), 2, cv2.LINE_AA)
+        if 67 in pts:
+            cv2.line(canvas, pts[67], (int(pts[67][0] + gx * 25), int(pts[67][1] + gy * 25)), (0, 0, 255), 2, cv2.LINE_AA)
+
+    else:
+        cv2.putText(
+            canvas,
+            "KHONG PHAT HIEN KHUON MAT (NO FACE)",
+            (30, h // 2),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (0, 0, 255),
+            2,
+            cv2.LINE_AA,
+        )
+
+    # 5. Draw telemetry HUD overlay on canvas
+    hud_h = 95
+    overlay = canvas.copy()
+    cv2.rectangle(overlay, (0, h - hud_h), (w, h), (20, 20, 20), -1)
+    cv2.addWeighted(overlay, 0.70, canvas, 0.30, 0, canvas)
+
+    rot = telem.get("rotation", {})
+    pitch = float(rot.get("pitch", 0.0)) * (180.0 / np.pi)
+    yaw = float(rot.get("yaw", 0.0)) * (180.0 / np.pi)
+    roll = float(rot.get("roll", 0.0)) * (180.0 / np.pi)
+    smile_lift = float(telem.get("smile_lift", 0.0))
+    joy = float(vrm.get("joy", 0.0))
+    mouth_a = float(vrm.get("a", 0.0))
+    mouth_u = float(vrm.get("u", 0.0))
+    mouth_o = float(vrm.get("o", 0.0))
+    blink_l = float(vrm.get("blink_l", 0.0))
+    blink_r = float(vrm.get("blink_r", 0.0))
+
+    line1 = f"Backend: OpenSeeFace ONNX | Head: Pitch:{pitch:+.1f}*  Yaw:{yaw:+.1f}*  Roll:{roll:+.1f}*"
+    line2 = f"SmileLift: {smile_lift:+.3f} (dz: 0.015) -> JOY: {joy:.2f} | Blink: L={blink_l:.2f} R={blink_r:.2f}"
+    line3 = f"Mouth: A={mouth_a:.2f}  U={mouth_u:.2f}  O={mouth_o:.2f} | Gaze: X={telem.get('gaze', {}).get('x', 0.0):+.2f} Y={telem.get('gaze', {}).get('y', 0.0):+.2f}"
+
+    cv2.putText(canvas, line1, (12, h - 68), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
+    joy_col = (0, 100, 255) if joy > 0.05 else (0, 255, 128)
+    cv2.putText(canvas, line2, (12, h - 42), cv2.FONT_HERSHEY_SIMPLEX, 0.45, joy_col, 1, cv2.LINE_AA)
+    cv2.putText(canvas, line3, (12, h - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 220, 255), 1, cv2.LINE_AA)
+
+    return canvas
+
+
 class OpenSeeFaceTracker:
     """
     Wrapper around OpenSeeFace Tracker for seamless integration with VTuber motion pipeline.
@@ -480,14 +608,17 @@ class OpenSeeFaceTracker:
             or None if no face is present.
         """
         if frame is None or frame.size == 0:
+            self.last_face = None
             return None
 
         # Predict faces using OpenSeeFace
         faces = self.tracker.predict(frame)
         if not faces:
+            self.last_face = None
             return None
 
         face = faces[0]
+        self.last_face = face
         vrm_shapes = map_openseeface_to_vrm(face, config=config)
         vrc_targets = map_openseeface_to_vrc(face)
         pitch_offset = float(config.get("pitch_offset_deg", 18.0)) if config else 18.0

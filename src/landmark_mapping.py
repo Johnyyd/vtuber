@@ -873,3 +873,75 @@ def map_landmarks_to_blendshapes(landmarks: Dict[str, tuple]) -> Dict[str, float
     dist = float(np.linalg.norm(np.array(lm13) - np.array(lm14)))
     mouth_open = _clamp(dist * 2.5)
     return {"mouth_open": mouth_open}
+
+
+def draw_mediapipe_debug(
+    frame: np.ndarray,
+    landmarks: Optional[Dict[str, tuple]] = None,
+    vrm_shapes: Optional[Dict[str, float]] = None,
+    telemetry: Optional[Dict[str, Any]] = None,
+) -> np.ndarray:
+    """
+    Render key MediaPipe facial landmarks, iris gaze, and HUD telemetry on frame.
+    Returns a new annotated BGR image.
+    """
+    if frame is None or frame.size == 0:
+        return np.zeros((480, 640, 3), dtype=np.uint8)
+
+    canvas = frame.copy()
+    h, w = canvas.shape[:2]
+    vrm = vrm_shapes or {}
+    telem = telemetry or {}
+
+    if landmarks:
+        for name, coords in landmarks.items():
+            if len(coords) >= 2:
+                cx, cy = coords[0], coords[1]
+                px = int(cx * w) if cx <= 1.0 else int(cx)
+                py = int(cy * h) if cy <= 1.0 else int(cy)
+                if 0 <= px < w and 0 <= py < h:
+                    cv2.circle(canvas, (px, py), 1, (0, 255, 0), -1, cv2.LINE_AA)
+
+        for iris_key in ("lm468", "lm473"):
+            if iris_key in landmarks:
+                coords = landmarks[iris_key]
+                px = int(coords[0] * w) if coords[0] <= 1.0 else int(coords[0])
+                py = int(coords[1] * h) if coords[1] <= 1.0 else int(coords[1])
+                cv2.circle(canvas, (px, py), 4, (0, 0, 255), -1, cv2.LINE_AA)
+                cv2.circle(canvas, (px, py), 2, (0, 255, 255), -1, cv2.LINE_AA)
+    else:
+        cv2.putText(
+            canvas,
+            "KHONG PHAT HIEN KHUON MAT (NO FACE)",
+            (30, h // 2),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (0, 0, 255),
+            2,
+            cv2.LINE_AA,
+        )
+
+    hud_h = 95
+    overlay = canvas.copy()
+    cv2.rectangle(overlay, (0, h - hud_h), (w, h), (20, 20, 20), -1)
+    cv2.addWeighted(overlay, 0.70, canvas, 0.30, 0, canvas)
+
+    rot = telem.get("rotation", {})
+    pitch = float(rot.get("pitch", 0.0)) * (180.0 / np.pi)
+    yaw = float(rot.get("yaw", 0.0)) * (180.0 / np.pi)
+    roll = float(rot.get("roll", 0.0)) * (180.0 / np.pi)
+    joy = float(vrm.get("joy", 0.0))
+    mouth_a = float(vrm.get("a", 0.0))
+    blink_l = float(vrm.get("blink_l", 0.0))
+    blink_r = float(vrm.get("blink_r", 0.0))
+
+    line1 = f"Backend: Google MediaPipe | Head: Pitch:{pitch:+.1f}*  Yaw:{yaw:+.1f}*  Roll:{roll:+.1f}*"
+    line2 = f"JOY: {joy:.2f} | Surprised: {vrm.get('surprised', 0.0):.2f} | Sorrow: {vrm.get('sorrow', 0.0):.2f}"
+    line3 = f"Mouth: A={mouth_a:.2f} | Blink: L={blink_l:.2f} R={blink_r:.2f} | Gaze: X={telem.get('gaze', {}).get('x', 0.0):+.2f} Y={telem.get('gaze', {}).get('y', 0.0):+.2f}"
+
+    cv2.putText(canvas, line1, (12, h - 68), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
+    joy_col = (0, 100, 255) if joy > 0.05 else (0, 255, 128)
+    cv2.putText(canvas, line2, (12, h - 42), cv2.FONT_HERSHEY_SIMPLEX, 0.45, joy_col, 1, cv2.LINE_AA)
+    cv2.putText(canvas, line3, (12, h - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 220, 255), 1, cv2.LINE_AA)
+
+    return canvas
